@@ -1,0 +1,2458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RG Pharmaceutica — Trademark &amp; Brand Management Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #D8DCE3; border-radius: 8px; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+function IconBase({ children, size = 16, color, style }) {
+  return <span style={{ fontSize: size, lineHeight: 1, color, display: "inline-flex", ...style }}>{children}</span>;
+}
+const Shield = (p) => <IconBase {...p}>🛡️</IconBase>;
+const AlertTriangle = (p) => <IconBase {...p}>⚠️</IconBase>;
+const FileSearch = (p) => <IconBase {...p}>🔎</IconBase>;
+const MessageSquareWarning = (p) => <IconBase {...p}>💬</IconBase>;
+const Gauge = (p) => <IconBase {...p}>📊</IconBase>;
+const Plus = (p) => <IconBase {...p}>➕</IconBase>;
+const Trash2 = (p) => <IconBase {...p}>🗑️</IconBase>;
+const ChevronRight = (p) => <IconBase {...p}>▶</IconBase>;
+const BadgeCheck = (p) => <IconBase {...p}>✔️</IconBase>;
+const Copyright = (p) => <IconBase {...p}>©️</IconBase>;
+const ShieldCheck = (p) => <IconBase {...p}>🛡️</IconBase>;
+const Swords = (p) => <IconBase {...p}>⚔️</IconBase>;
+const Upload = (p) => <IconBase {...p}>⬆️</IconBase>;
+const ImageIcon = (p) => <IconBase {...p}>🖼️</IconBase>;
+const X = (p) => <IconBase {...p}>✕</IconBase>;
+const PackageCheck = (p) => <IconBase {...p}>📦</IconBase>;
+const Cart = (p) => <IconBase {...p}>🛒</IconBase>;
+const Boxes = (p) => <IconBase {...p}>🗂️</IconBase>;
+const Database = (p) => <IconBase {...p}>🗄️</IconBase>;
+const Mail = (p) => <IconBase {...p}>✉️</IconBase>;
+const Clock = (p) => <IconBase {...p}>⏱️</IconBase>;
+const SearchIcon = (p) => <IconBase {...p}>🔍</IconBase>;
+const Bank = (p) => <IconBase {...p}>🏦</IconBase>;
+
+// ---------- Firebase config ----------
+const firebaseConfig = {
+  apiKey: "AIzaSyDrArTOOUyuLr8pyuglQngk-XG5pywK80o",
+  authDomain: "rgp-trademark-dashboard.firebaseapp.com",
+  projectId: "rgp-trademark-dashboard",
+  storageBucket: "rgp-trademark-dashboard.firebasestorage.app",
+  messagingSenderId: "344112634235",
+  appId: "1:344112634235:web:9c9d4c347638ebc22b45de",
+};
+const FIREBASE_ENABLED = firebaseConfig.apiKey && firebaseConfig.apiKey.indexOf("PASTE_YOUR") !== 0;
+let fbApp = null, fbAuth = null, fbDb = null;
+if (FIREBASE_ENABLED) {
+  fbApp = firebase.initializeApp(firebaseConfig);
+  fbAuth = firebase.auth();
+  fbDb = firebase.firestore();
+}
+const FIRESTORE_COLLECTION = "rgpDashboardData";
+
+const storage = {
+  async get(key) {
+    if (FIREBASE_ENABLED && fbDb) {
+      try {
+        const doc = await fbDb.collection(FIRESTORE_COLLECTION).doc(key).get();
+        return doc.exists ? { key, value: doc.data().value } : null;
+      } catch (e) { return null; }
+    }
+    try { const v = localStorage.getItem(key); return v === null ? null : { key, value: v }; } catch (e) { return null; }
+  },
+  async set(key, value) {
+    if (FIREBASE_ENABLED && fbDb) {
+      try {
+        await fbDb.collection(FIRESTORE_COLLECTION).doc(key).set({
+          value, updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          updatedBy: (fbAuth.currentUser && fbAuth.currentUser.email) || "unknown",
+        });
+        return { key, value };
+      } catch (e) { console.error("Firestore write failed", e); return null; }
+    }
+    try { localStorage.setItem(key, value); return { key, value }; } catch (e) { return null; }
+  },
+  subscribe(key, onChange) {
+    if (FIREBASE_ENABLED && fbDb) {
+      return fbDb.collection(FIRESTORE_COLLECTION).doc(key).onSnapshot((doc) => {
+        onChange(doc.exists ? doc.data().value : null);
+      }, (err) => console.error("Firestore listen failed", err));
+    }
+    this.get(key).then((r) => onChange(r ? r.value : null));
+    return () => {};
+  },
+};
+
+function levenshtein(a, b) {
+  a = a.toLowerCase().trim(); b = b.toLowerCase().trim();
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  return dp[m][n];
+}
+function spellingScore(a, b) {
+  if (!a || !b) return 0;
+  const dist = levenshtein(a, b);
+  const maxLen = Math.max(a.length, b.length) || 1;
+  return Math.round((1 - dist / maxLen) * 100);
+}
+function soundex(s) {
+  if (!s) return "";
+  s = s.toUpperCase().replace(/[^A-Z]/g, "");
+  if (!s) return "";
+  const codes = { B: 1, F: 1, P: 1, V: 1, C: 2, G: 2, J: 2, K: 2, Q: 2, S: 2, X: 2, Z: 2, D: 3, T: 3, L: 4, M: 5, N: 5, R: 6 };
+  let out = s[0]; let lastCode = codes[s[0]] || 0;
+  for (let i = 1; i < s.length && out.length < 4; i++) {
+    const code = codes[s[i]] || 0;
+    if (code !== 0 && code !== lastCode) out += code;
+    lastCode = code;
+  }
+  return (out + "000").slice(0, 4);
+}
+function combinedSimilarity(a, b) {
+  const spell = spellingScore(a, b);
+  const soundAlike = soundex(a) && soundex(a) === soundex(b);
+  return soundAlike ? Math.max(spell, 75) : spell;
+}
+function bestMatchInBank(name, bankNames) {
+  if (!name || !name.trim() || bankNames.length === 0) return { match: "", score: 0 };
+  let best = { match: "", score: -1 };
+  bankNames.forEach((b) => { const s = combinedSimilarity(name, b); if (s > best.score) best = { match: b, score: s }; });
+  return best;
+}
+function saleSuggestion(pct) {
+  const n = parseFloat(pct);
+  if (isNaN(n)) return "";
+  if (n < 2) return "Suggested: Monitor + File DRAP QA + Lawyer Notice (< 2% market share)";
+  if (n <= 5) return "Suggested: Lawyer Notice + File DRAP QA, watch closely (2–5% market share)";
+  return "Suggested: Full Oppose — Lawyer + DRAP Registration & HOTC Division (> 5% market share)";
+}
+
+function fileToCompressedDataUrl(file, maxDim = 700, quality = 0.7) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new window.Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDim) { height = Math.round((height * maxDim) / width); width = maxDim; }
+        else if (height > maxDim) { width = Math.round((width * maxDim) / height); height = maxDim; }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = reject; img.src = e.target.result;
+    };
+    reader.onerror = reject; reader.readAsDataURL(file);
+  });
+}
+function uid(prefix) { return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 100000)}`; }
+function today() { return new Date().toISOString().slice(0, 10); }
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr); if (isNaN(d)) return null;
+  return Math.floor((new Date() - d) / (1000 * 60 * 60 * 24));
+}
+
+const TM_STATUSES = ["Applied", "Advertised", "Certified", "Abandoned"];
+const CR_STATUSES = ["Applied", "Advertised", "Certified", "Abandoned"];
+const TM_CLASSES = ["Class 3", "Class 5", "Class 29", "Class 30", "Class 32", "Other"];
+const FILED_BY_OPTIONS = ["Lawyer", "Field Force", "Regulatory (DRAP)", "Management", "Public Portal"];
+const SIMILARITY_ISSUES = ["Trademark", "Copyright", "Other"];
+const MARKETED_OPTIONS = ["Yes", "No"];
+const COMPANY_SIZE_OPTIONS = ["Small", "Medium", "Large", "Unknown"];
+const DECISION_OPTIONS = ["Monitor", "File through DRAP QA", "Notice from Lawyer / Oppose from Lawyer", "Filed in IPO (Opposition)", "De-registration/Enlistment Decision", "Others"];
+const CASE_STATUS_OPTIONS = [
+  "In Process", "Hearing in DRAP", "Hearing in IPO", "Opposition Taken by Against Company", "Opposition Taken by Us",
+  "Decision in Our Favor (Other Company's Mark Removed)", "Decision Against Us",
+  "Competitor Product Name Changed", "Competitor Product Removed from Market", "Our Name Changed", "Others",
+];
+const TERMINAL_CASE_STATUSES = [
+  "Decision in Our Favor (Other Company's Mark Removed)", "Decision Against Us",
+  "Competitor Product Name Changed", "Competitor Product Removed from Market", "Our Name Changed", "Others",
+];
+const TM_OPP_STATUS_BY_RGP = [
+  "Opposition Filed by RGP in IPO", "Opposition Filed by RGP in DRAP", "Hearing in DRAP", "Hearing in IPO",
+  "Decision in Our Favor in IPO", "Decision Against Us in IPO", "Decision in RGP's Favor in DRAP", "Decision Against RGP in DRAP",
+  "Competitor Product Name Changed", "Competitor Product Removed from Market", "Our Name Changed", "Others",
+];
+const TM_OPP_STATUS_AGAINST_RGP = [
+  "Opposition Filed by Other Company in IPO", "Opposition Filed by Other Company in DRAP", "Hearing in DRAP", "Hearing in IPO",
+  "Decision in Our Favor in IPO", "Decision Against Us in IPO", "Decision in RGP's Favor in DRAP", "Decision Against RGP in DRAP",
+  "Competitor Product Name Changed", "Competitor Product Removed from Market", "Our Name Changed", "Others",
+];
+const CR_OPP_STATUS_BY_RGP = [
+  "Copyright Opposition Filed by RGP in IPO", "Copyright Opposition Filed by RGP in DRAP", "Hearing in DRAP", "Hearing in IPO",
+  "Decision in Our Favor in IPO", "Decision Against Us in IPO", "Decision in RGP's Favor in DRAP", "Decision Against RGP in DRAP",
+  "Competitor Product Name Changed", "Competitor Product Removed from Market", "Our Name Changed", "Others",
+];
+const CR_OPP_STATUS_AGAINST_RGP = [
+  "Copyright Opposition Filed by Other Company in IPO", "Copyright Opposition Filed by Other Company in DRAP", "Hearing in DRAP", "Hearing in IPO",
+  "Decision in Our Favor in IPO", "Decision Against Us in IPO", "Decision in RGP's Favor in DRAP", "Decision Against RGP in DRAP",
+  "Competitor Product Name Changed", "Competitor Product Removed from Market", "Our Name Changed", "Others",
+];
+const WATCHLIST_STAGES = ["Monitor", "Cease & Desist", "DRAP Complaint", "TM Opposition"];
+
+const TABS = [
+  { key: "overview", label: "Overview", Icon: Gauge },
+  { key: "searchtm", label: "Search Before TM Filing", Icon: SearchIcon },
+  { key: "trademark", label: "TM Portfolio", Icon: ShieldCheck },
+  { key: "tmopposition", label: "TM Opposition", Icon: Swords },
+  { key: "copyright", label: "Copyright", Icon: Copyright },
+  { key: "copyrightopposition", label: "Copyright Opposition", Icon: Copyright },
+  { key: "enlisted", label: "Enlisted/Registered Products", Icon: PackageCheck },
+  { key: "ecommerce", label: "E-commerce", Icon: Cart },
+  { key: "misc", label: "Miscellaneous", Icon: Boxes },
+  { key: "watchlist", label: "Journal Watchlist", Icon: FileSearch },
+  { key: "complaints", label: "Complaint Log", Icon: MessageSquareWarning },
+  { key: "sheets", label: "Data Sources (Excel)", Icon: Database },
+];
+
+const STORAGE_KEYS = {
+  trademarks: "rgp:trademarks", brandBank: "rgp:brandBank", tmChecklist: "rgp:tmChecklist",
+  copyrights: "rgp:copyrights",
+  oppByRgp: "rgp:oppByRgp", oppAgainstRgp: "rgp:oppAgainstRgp", decisionToOpposeTm: "rgp:decisionToOpposeTm",
+  crOppByRgp: "rgp:crOppByRgp", crOppAgainstRgp: "rgp:crOppAgainstRgp", decisionToOpposeCopyright: "rgp:decisionToOpposeCopyright",
+  ecommerce: "rgp:ecommerce", misc: "rgp:misc", watchlist: "rgp:watchlist", complaints: "rgp:complaints",
+  sheets: "rgp:sheets", syncUrl: "rgp:syncUrl",
+};
+
+// ---------- Shared PDF-report helpers (usable from Overview AND every individual tab) ----------
+function svgBarChart(data, color) {
+  const max = Math.max(1, ...data.map((d) => d.value));
+  const w = 60, gap = 14, h = 130;
+  const bars = data.map((d, i) => {
+    const bh = Math.max(2, (d.value / max) * (h - 30));
+    const x = i * (w + gap);
+    return `<rect x="${x}" y="${h - bh}" width="${w}" height="${bh}" fill="${color}" rx="4" />
+      <text x="${x + w / 2}" y="${h - bh - 6}" font-size="12" font-weight="700" text-anchor="middle" fill="#3A3F4B">${d.value}</text>
+      <text x="${x + w / 2}" y="${h + 14}" font-size="10" text-anchor="middle" fill="#9AA5B8">${String(d.label).slice(0, 10)}</text>`;
+  }).join("");
+  return `<svg width="${data.length * (w + gap)}" height="${h + 24}" xmlns="http://www.w3.org/2000/svg">${bars}</svg>`;
+}
+function svgDonutChart(data, colors) {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return "<div style='color:#9AA5B8;font-size:12px;'>No data</div>";
+  const size = 150, r = size / 2 - 10, cx = size / 2, cy = size / 2;
+  let angleStart = -90;
+  const slices = data.filter((d) => d.value > 0).map((d, i) => {
+    const angle = (d.value / total) * 360;
+    const x1 = cx + r * Math.cos((Math.PI * angleStart) / 180), y1 = cy + r * Math.sin((Math.PI * angleStart) / 180);
+    const angleEnd = angleStart + angle;
+    const x2 = cx + r * Math.cos((Math.PI * angleEnd) / 180), y2 = cy + r * Math.sin((Math.PI * angleEnd) / 180);
+    const largeArc = angle > 180 ? 1 : 0;
+    const path = `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${largeArc} 1 ${x2},${y2} Z`;
+    const color = colors[i % colors.length];
+    angleStart = angleEnd;
+    return `<path d="${path}" fill="${color}" stroke="#fff" stroke-width="2" />`;
+  }).join("");
+  const legend = data.filter((d) => d.value > 0).map((d, i) => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:4px;"><span style="width:10px;height:10px;border-radius:3px;background:${colors[i % colors.length]};display:inline-block;"></span>${d.label} (${d.value})</div>`).join("");
+  return `<div style="display:flex;align-items:center;gap:16px;">
+    <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${slices}<circle cx="${cx}" cy="${cy}" r="${r * 0.55}" fill="#fff" /><text x="${cx}" y="${cy + 5}" text-anchor="middle" font-size="16" font-weight="700" fill="#1B2A4A">${total}</text></svg>
+    <div>${legend}</div>
+  </div>`;
+}
+function statCards(items) {
+  return `<div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0;">${items.map((it) => `
+    <div style="flex:1;min-width:110px;background:#F7F5F0;border-left:4px solid ${it.color || "#1B2A4A"};border-radius:8px;padding:10px 12px;">
+      <div style="font-size:20px;font-weight:700;color:#1B2A4A;">${it.value}</div>
+      <div style="font-size:11px;color:#6B7280;">${it.label}</div>
+    </div>`).join("")}</div>`;
+}
+function escapeHtml(v) { return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function section(title, rows) {
+  return `<h3 style="font-family:Georgia,serif;margin:24px 0 8px;color:#1B2A4A;border-bottom:2px solid #EEF0F3;padding-bottom:6px;">${title}</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">${rows.map((r) => `<tr><td style="padding:5px 8px;color:#6B7280;">${r[0]}</td><td style="padding:5px 8px;font-weight:700;text-align:right;">${r[1]}</td></tr>`).join("")}</table>`;
+}
+function dataTable(title, rows, columns) {
+  if (!rows || rows.length === 0) return `<h3 style="font-family:Georgia,serif;margin:24px 0 8px;color:#1B2A4A;border-bottom:2px solid #EEF0F3;padding-bottom:6px;">${title} (0)</h3><div style="color:#9AA5B8;font-size:12px;margin-bottom:10px;">No entries.</div>`;
+  return `<h3 style="font-family:Georgia,serif;margin:24px 0 8px;color:#1B2A4A;border-bottom:2px solid #EEF0F3;padding-bottom:6px;">${title} (${rows.length})</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px;">
+      <thead><tr>${columns.map((c) => `<th style="text-align:left;padding:5px 6px;border-bottom:2px solid #1B2A4A;color:#1B2A4A;white-space:nowrap;">${escapeHtml(c.header)}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((r, i) => `<tr style="background:${i % 2 ? "#F7F5F0" : "#ffffff"};">${columns.map((c) => `<td style="padding:5px 6px;border-bottom:1px solid #EEF0F3;color:#3A3F4B;">${escapeHtml(c.get(r))}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table>`;
+}
+// Opens the report in a new tab and triggers print. If the browser's pop-up blocker
+// intercepts window.open (the most common reason "Generate Report" silently did nothing),
+// this tells the user exactly what to do instead of failing silently.
+function openReportWindow(title, bodyHtml) {
+  const w = window.open("", "_blank");
+  if (!w) {
+    alert("Your browser blocked the report pop-up. Please allow pop-ups for this site (usually a small icon in the address bar) and click Generate Report again.");
+    return;
+  }
+  const generatedOn = new Date().toLocaleDateString();
+  w.document.write(`
+    <html><head><title>RG Pharmaceutica — ${escapeHtml(title)}</title></head>
+    <body style="font-family:Arial,sans-serif;max-width:850px;margin:40px auto;color:#232833;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;"><span style="font-size:28px;">🛡️</span><span style="font-family:Georgia,serif;font-size:24px;font-weight:700;color:#1B2A4A;">RG Pharmaceutica</span></div>
+      <div style="color:#6B7280;font-size:13px;margin-bottom:20px;">${escapeHtml(title)} — generated ${generatedOn}</div>
+      ${bodyHtml}
+      <div style="margin-top:40px;font-size:11px;color:#9AA5B8;">Generated automatically from the RG Pharmaceutica Trademark &amp; Brand Management Dashboard.</div>
+    </body></html>
+  `);
+  w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 400);
+}
+// Small reusable button used on every individual tab.
+function GenerateReportButton({ onClick }) {
+  return <button style={{ ...styles.uploadBtn, background: "#1B2A4A" }} onClick={onClick}>📄 Generate Report (PDF)</button>;
+}
+
+function BrandShieldDashboard({ user, onLogout }) {
+  const [activeTab, setActiveTab] = useState("overview");
+  const [focusId, setFocusId] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const [trademarks, setTrademarks] = useState([]);
+  const [brandBank, setBrandBank] = useState([]);
+  const [tmChecklist, setTmChecklist] = useState([]);
+  const [copyrights, setCopyrights] = useState([]);
+  const [oppByRgp, setOppByRgp] = useState([]);
+  const [oppAgainstRgp, setOppAgainstRgp] = useState([]);
+  const [decisionToOpposeTm, setDecisionToOpposeTm] = useState([]);
+  const [crOppByRgp, setCrOppByRgp] = useState([]);
+  const [crOppAgainstRgp, setCrOppAgainstRgp] = useState([]);
+  const [decisionToOpposeCopyright, setDecisionToOpposeCopyright] = useState([]);
+  const [ecommerce, setEcommerce] = useState([]);
+  const [misc, setMisc] = useState([]);
+  const [watchlist, setWatchlist] = useState([]);
+  const [complaints, setComplaints] = useState([]);
+  const [sheets, setSheets] = useState([]);
+  const [syncUrl, setSyncUrl] = useState("");
+  const [syncStatus, setSyncStatus] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [exportImportMsg, setExportImportMsg] = useState("");
+  const [importMsg, setImportMsg] = useState({});
+
+  const fileInputRefs = {
+    trademark: useRef(null), copyright: useRef(null),
+    oppByRgp: useRef(null), oppAgainstRgp: useRef(null),
+    crOppByRgp: useRef(null), crOppAgainstRgp: useRef(null),
+    ecommerce: useRef(null), misc: useRef(null), complaints: useRef(null), brandBank: useRef(null), tmChecklist: useRef(null),
+  };
+  const complaintImagesRef = useRef(null);
+  const importAllRef = useRef(null);
+
+  useEffect(() => {
+    const setters = {
+      [STORAGE_KEYS.trademarks]: setTrademarks,
+      [STORAGE_KEYS.brandBank]: setBrandBank,
+      [STORAGE_KEYS.tmChecklist]: setTmChecklist,
+      [STORAGE_KEYS.copyrights]: setCopyrights,
+      [STORAGE_KEYS.oppByRgp]: setOppByRgp,
+      [STORAGE_KEYS.oppAgainstRgp]: setOppAgainstRgp,
+      [STORAGE_KEYS.decisionToOpposeTm]: setDecisionToOpposeTm,
+      [STORAGE_KEYS.crOppByRgp]: setCrOppByRgp,
+      [STORAGE_KEYS.crOppAgainstRgp]: setCrOppAgainstRgp,
+      [STORAGE_KEYS.decisionToOpposeCopyright]: setDecisionToOpposeCopyright,
+      [STORAGE_KEYS.ecommerce]: setEcommerce,
+      [STORAGE_KEYS.misc]: setMisc,
+      [STORAGE_KEYS.watchlist]: setWatchlist,
+      [STORAGE_KEYS.complaints]: setComplaints,
+      [STORAGE_KEYS.sheets]: setSheets,
+    };
+    const unsubscribers = Object.entries(setters).map(([key, setter]) =>
+      storage.subscribe(key, (rawValue) => {
+        try { setter(rawValue ? JSON.parse(rawValue) : []); } catch (e) { setter([]); }
+        setLoading(false);
+      })
+    );
+    const unsubSyncUrl = storage.subscribe(STORAGE_KEYS.syncUrl, (rawValue) => setSyncUrl(rawValue || ""));
+    return () => { unsubscribers.forEach((u) => u && u()); unsubSyncUrl && unsubSyncUrl(); };
+  }, []);
+
+  const persist = async (key, value) => { try { await storage.set(key, JSON.stringify(value)); } catch (e) { console.error("Storage failed", e); } };
+  const saveSyncUrl = (url) => { setSyncUrl(url); storage.set(STORAGE_KEYS.syncUrl, url).catch((e) => console.error(e)); };
+
+  const enlistedNames = useMemo(() => trademarks.filter((t) => t.drapEnlisted).map((t) => t.name), [trademarks]);
+  const certifiedNames = useMemo(() => trademarks.filter((t) => t.status === "Certified").map((t) => t.name), [trademarks]);
+  const combinedBankNames = useMemo(() => {
+    const manual = brandBank.map((b) => b.name);
+    return Array.from(new Set([...manual, ...enlistedNames].filter(Boolean)));
+  }, [brandBank, enlistedNames]);
+
+  // ---------- Auto-escalation: Complaint Log -> Decision to Oppose TM / Copyright ----------
+  useEffect(() => {
+    const missingTm = complaints.filter((c) => c.similarityIssue === "Trademark" && !decisionToOpposeTm.some((d) => d.complaintId === c.id));
+    if (missingTm.length > 0) {
+      const newRows = missingTm.map((c) => ({
+        id: uid("dto"), sheetId: null, complaintId: c.id,
+        complaintNo: c.id.slice(-6), complaintBy: c.filedBy, nature: c.text, companyName: c.companyName || "",
+        drapEnlistedRegistered: "", marketed: c.marketed || "", salePercentage: c.salePercentage || "", marketSharePct: "",
+        companySize: "", decision: [], actionTaken: "", caseStatus: "In Process", othersDetails: "",
+      }));
+      const updated = [...newRows, ...decisionToOpposeTm];
+      setDecisionToOpposeTm(updated); persist(STORAGE_KEYS.decisionToOpposeTm, updated);
+    }
+    const missingCr = complaints.filter((c) => c.similarityIssue === "Copyright" && !decisionToOpposeCopyright.some((d) => d.complaintId === c.id));
+    if (missingCr.length > 0) {
+      const newRows = missingCr.map((c) => ({
+        id: uid("cro"), sheetId: null, complaintId: c.id,
+        complaintNo: c.id.slice(-6), complaintBy: c.filedBy, nature: c.text, companyName: c.companyName || "",
+        drapEnlistedRegistered: "", marketed: c.marketed || "", salePercentage: c.salePercentage || "", marketSharePct: "",
+        companySize: "", decision: [], actionTaken: "", caseStatus: "In Process", othersDetails: "",
+      }));
+      const updated = [...newRows, ...decisionToOpposeCopyright];
+      setDecisionToOpposeCopyright(updated); persist(STORAGE_KEYS.decisionToOpposeCopyright, updated);
+    }
+    const complaintIds = new Set(complaints.map((c) => c.id));
+    if (decisionToOpposeTm.some((d) => d.complaintId && !complaintIds.has(d.complaintId))) {
+      const updated = decisionToOpposeTm.filter((d) => !d.complaintId || complaintIds.has(d.complaintId));
+      setDecisionToOpposeTm(updated); persist(STORAGE_KEYS.decisionToOpposeTm, updated);
+    }
+    if (decisionToOpposeCopyright.some((d) => d.complaintId && !complaintIds.has(d.complaintId))) {
+      const updated = decisionToOpposeCopyright.filter((d) => !d.complaintId || complaintIds.has(d.complaintId));
+      setDecisionToOpposeCopyright(updated); persist(STORAGE_KEYS.decisionToOpposeCopyright, updated);
+    }
+    // eslint-disable-next-line
+  }, [complaints]);
+
+  // ---------- Generic Excel importer ----------
+  function importExcel(file, tabKey, mapRow, currentList, setList, storageKey) {
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const wb = XLSX.read(evt.target.result, { type: "binary" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        // Read as raw rows first so we can find the real header row even if there's
+        // a title/blank row above it (a very common reason imports silently fail).
+        const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", blankrows: false });
+        let headerRowIdx = 0;
+        for (let i = 0; i < Math.min(rawRows.length, 8); i++) {
+          const nonEmpty = rawRows[i].filter((c) => String(c).trim() !== "").length;
+          if (nonEmpty >= 2) { headerRowIdx = i; break; }
+        }
+        const headerRow = rawRows[headerRowIdx].map((h) => String(h).trim());
+        const dataRows = rawRows.slice(headerRowIdx + 1);
+        const rows = dataRows
+          .filter((r) => r.some((c) => String(c).trim() !== ""))
+          .map((r) => { const obj = {}; headerRow.forEach((h, i) => { if (h) obj[h] = r[i] !== undefined ? r[i] : ""; }); return obj; });
+        const sheetId = uid("sheet");
+        const imported = rows.map((row, i) => {
+          const get = (...keys) => {
+            const headers = Object.keys(row);
+            for (const k of keys) {
+              const kNorm = k.toLowerCase().trim();
+              let found = headers.find((rk) => rk.toLowerCase().trim() === kNorm);
+              if (!found) found = headers.find((rk) => { const rkNorm = rk.toLowerCase().trim(); return rkNorm.includes(kNorm) || kNorm.includes(rkNorm); });
+              if (found && String(row[found]).trim() !== "") return row[found];
+            }
+            return "";
+          };
+          const getStatus = (list, fallback) => {
+            const raw = String(get("status") || "").toLowerCase().trim();
+            if (!raw) return fallback;
+            const exact = list.find((s) => s.toLowerCase() === raw);
+            if (exact) return exact;
+            const partial = list.find((s) => raw.includes(s.toLowerCase()) || s.toLowerCase().includes(raw));
+            return partial || fallback;
+          };
+          return { ...mapRow(get, i, getStatus), id: uid("row"), sheetId };
+        });
+        const updated = [...imported, ...currentList];
+        setList(updated); persist(storageKey, updated);
+        const sheetMeta = { id: sheetId, name: file.name, tab: tabKey, uploadedAt: today(), rowCount: imported.length };
+        const updatedSheets = [sheetMeta, ...sheets];
+        setSheets(updatedSheets); persist(STORAGE_KEYS.sheets, updatedSheets);
+        setImportMsg((m) => ({ ...m, [tabKey]: `Imported ${imported.length} row(s) from ${file.name}. Columns detected: ${headerRow.filter(Boolean).join(", ") || "(none found)"}` }));
+      } catch (err) {
+        setImportMsg((m) => ({ ...m, [tabKey]: "Could not read this file — check it's a valid .xlsx/.csv with a header row." }));
+      }
+    };
+    reader.readAsBinaryString(file);
+  }
+  const truthy = (v) => ["yes", "true", "1", "y", "enlisted", "registered"].includes(String(v).toLowerCase().trim());
+
+  const handleTmExcel = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    importExcel(file, "trademark", (get, i, getStatus) => ({
+      name: String(get("name", "mark", "trademark", "trademark name", "brand name", "brand") || `Imported Mark ${i + 1}`),
+      cls: String(get("class", "cls") || "Class 5"),
+      status: getStatus(TM_STATUSES, "Applied"),
+      appliedDate: String(get("applied date", "tm application date", "application date") || ""),
+      advertisedDate: String(get("advertised date") || ""),
+      certifiedDate: String(get("certified date") || ""),
+      drapEnlisted: truthy(get("drap", "drap enlisted", "drap enlisted/registered", "enlisted", "drap enlisted / registered", "registered")),
+      enlistmentRegNo: String(get("enlistment number", "registration number", "enlistment/registration number", "enlistment no", "reg no", "reg number", "registration no") || ""),
+      enlistmentRegDate: String(get("enlistment date", "enlistment/registration date", "registration date") || ""),
+      assignedProduct: String(get("assigned product", "product", "product name") || ""),
+      tmApplicationNo: String(get("tm application number", "tm no", "tm number", "application number", "application no", "app no", "app number") || ""),
+      renewalDate: String(get("renewal date", "renewal") || ""),
+      marketed: MARKETED_OPTIONS.find((m) => String(get("marketed") || "").toLowerCase().trim().includes(m.toLowerCase())) || "",
+      marketedDate: String(get("marketed date", "market date") || ""),
+      salePercentage: String(get("sale percentage", "sale %", "sale volume") || ""),
+    }), trademarks, setTrademarks, STORAGE_KEYS.trademarks);
+    e.target.value = "";
+  };
+  const handleCrExcel = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    importExcel(file, "copyright", (get, i, getStatus) => ({
+      name: String(get("name", "work", "title") || `Imported Work ${i + 1}`),
+      status: getStatus(CR_STATUSES, "Applied"),
+      appliedDate: String(get("applied date") || ""),
+      advertisedDate: String(get("advertised date") || ""),
+      certifiedDate: String(get("certified date") || ""),
+      drapEnlisted: truthy(get("drap", "drap enlisted", "enlisted")),
+      regNo: String(get("registration number", "enlistment number") || ""),
+      regDate: String(get("registration date", "enlistment date") || ""),
+      marketed: MARKETED_OPTIONS.find((m) => m.toLowerCase() === String(get("marketed") || "").toLowerCase()) || "",
+      marketedDate: String(get("marketed date") || ""),
+      salePercentage: String(get("sale percentage") || ""),
+    }), copyrights, setCopyrights, STORAGE_KEYS.copyrights);
+    e.target.value = "";
+  };
+  function makeOppRowMapper(mode) {
+    return (get, i) => ({
+      rgpStatus: String(get("rgp product status", "rgp status") || ""),
+      rgpBrandName: String(get("brand name of rgp", "rgp brand", "rgp brand name", "rgp name", "rgp mark", "rgp trademark", "rgp trademark name", "rgp product") || ""),
+      rgpIdNo: String(get(mode === "tm" ? "tm no of rgp" : "copyright no of rgp", "rgp no", "rgp tm no", "rgp copyright no", "rgp reg no", "rgp registration no") || ""),
+      rgpDate: String(get("rgp date") || ""),
+      rgpMarketed: String(get("rgp marketed") || ""),
+      rgpSalePercentage: String(get("rgp sale percentage") || ""),
+      rgpMarketedDate: String(get("rgp marketed date") || ""),
+      otherStatus: String(get("other company status", "other company tm status") || ""),
+      otherBrandName: String(get("brand name of other company", "other company brand", "other company name", "other brand", "other brand name", "opposing company", "opposing brand", "opposing party", "other party", "brand name", "name", "mark", "trademark", "trademark name") || `Company ${i + 1}`),
+      otherIdNo: String(get("other company number", "other company no", "other company tm no", "other company reg no", "tm no", "reg no", "registration no", "application no") || ""),
+      otherDate: String(get("other company date", "date") || ""),
+      otherMarketed: String(get("other company marketed") || ""),
+      otherSalePercentage: String(get("other company sale percentage") || ""),
+      otherMarketedDate: String(get("other company marketed date") || ""),
+      niceClass: String(get("nice class", "class") || ""),
+      filedDate: String(get("filed date") || today()),
+      companyName: String(get("company", "company name", "other company", "opposing company", "party name") || `Company ${i + 1}`),
+      companyAddress: String(get("company address", "address") || ""),
+      workDesign: String(get("work design") || ""),
+      status: "",
+    });
+  }
+  const handleOppByRgpExcel = (e) => { const file = e.target.files[0]; if (!file) return; importExcel(file, "oppByRgp", makeOppRowMapper("tm"), oppByRgp, setOppByRgp, STORAGE_KEYS.oppByRgp); e.target.value = ""; };
+  const handleOppAgainstRgpExcel = (e) => { const file = e.target.files[0]; if (!file) return; importExcel(file, "oppAgainstRgp", makeOppRowMapper("tm"), oppAgainstRgp, setOppAgainstRgp, STORAGE_KEYS.oppAgainstRgp); e.target.value = ""; };
+  const handleCrOppByRgpExcel = (e) => { const file = e.target.files[0]; if (!file) return; importExcel(file, "crOppByRgp", makeOppRowMapper("cr"), crOppByRgp, setCrOppByRgp, STORAGE_KEYS.crOppByRgp); e.target.value = ""; };
+  const handleCrOppAgainstRgpExcel = (e) => { const file = e.target.files[0]; if (!file) return; importExcel(file, "crOppAgainstRgp", makeOppRowMapper("cr"), crOppAgainstRgp, setCrOppAgainstRgp, STORAGE_KEYS.crOppAgainstRgp); e.target.value = ""; };
+  const handleEcomExcel = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    importExcel(file, "ecommerce", (get, i) => ({
+      brandName: String(get("brand name", "brand", "name") || `Brand ${i + 1}`),
+      product: String(get("product") || ""),
+      applicationDate: String(get("application date") || today()),
+      applicationNumber: String(get("application number") || ""),
+      applicationStatus: String(get("application status", "status")).toLowerCase().includes("cert") ? "Certified" : "Applied",
+    }), ecommerce, setEcommerce, STORAGE_KEYS.ecommerce);
+    e.target.value = "";
+  };
+  const handleMiscExcel = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    importExcel(file, "misc", (get, i) => ({
+      title: String(get("title", "name") || `Item ${i + 1}`), description: String(get("description", "notes") || ""), date: String(get("date") || today()),
+    }), misc, setMisc, STORAGE_KEYS.misc);
+    e.target.value = "";
+  };
+  const handleComplaintsExcel = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    importExcel(file, "complaints", (get, i, getStatus) => ({
+      text: String(get("complaint", "description", "text") || `Complaint ${i + 1}`),
+      filedBy: FILED_BY_OPTIONS.find((f) => f.toLowerCase() === String(get("filed by") || "").toLowerCase()) || "Public Portal",
+      companyName: String(get("company name", "company") || ""),
+      companyAddress: String(get("company address", "address") || ""),
+      productName: String(get("product name", "product") || ""),
+      marketed: MARKETED_OPTIONS.find((m) => m.toLowerCase() === String(get("marketed") || "").toLowerCase()) || "",
+      salePercentage: String(get("sale percentage", "sale volume") || ""),
+      similarityIssue: SIMILARITY_ISSUES.find((s) => String(get("similarity issue", "issue") || "").toLowerCase().trim().includes(s.toLowerCase())) || "Trademark",
+      enlistmentRegNo: String(get("enlistment number", "registration number") || ""),
+      similarTo: String(get("similar to") || ""),
+      certifiedMark: String(get("certified mark") || ""),
+      date: String(get("date") || today()),
+      images: [], resolved: truthy(get("resolved")), resolvedDate: String(get("resolved date") || ""),
+    }), complaints, setComplaints, STORAGE_KEYS.complaints);
+    e.target.value = "";
+  };
+  const handleBrandBankExcel = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    importExcel(file, "brandBank", (get, i) => ({ name: String(get("name", "brand", "mark") || `Bank Entry ${i + 1}`) }), brandBank, setBrandBank, STORAGE_KEYS.brandBank);
+    e.target.value = "";
+  };
+  const handleTmChecklistExcel = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    importExcel(file, "tmChecklist", (get, i) => ({
+      name: String(get("name", "mark") || `Candidate ${i + 1}`), dateAdded: today(), wipo: "", pharmabridge: "", drapPortal: "", lawyerTM55: "", notes: String(get("notes") || ""),
+    }), tmChecklist, setTmChecklist, STORAGE_KEYS.tmChecklist);
+    e.target.value = "";
+  };
+
+  const deleteSheet = (sheetId) => {
+    if (!window.confirm("Delete this sheet? Every row it added will also be removed.")) return;
+    const wipe = (setter, key) => setter((prev) => { const u = prev.filter((r) => r.sheetId !== sheetId); persist(key, u); return u; });
+    setSheets((prev) => { const u = prev.filter((s) => s.id !== sheetId); persist(STORAGE_KEYS.sheets, u); return u; });
+    wipe(setTrademarks, STORAGE_KEYS.trademarks); wipe(setCopyrights, STORAGE_KEYS.copyrights);
+    wipe(setOppByRgp, STORAGE_KEYS.oppByRgp); wipe(setOppAgainstRgp, STORAGE_KEYS.oppAgainstRgp);
+    wipe(setCrOppByRgp, STORAGE_KEYS.crOppByRgp); wipe(setCrOppAgainstRgp, STORAGE_KEYS.crOppAgainstRgp);
+    wipe(setEcommerce, STORAGE_KEYS.ecommerce); wipe(setMisc, STORAGE_KEYS.misc); wipe(setComplaints, STORAGE_KEYS.complaints);
+    wipe(setBrandBank, STORAGE_KEYS.brandBank); wipe(setTmChecklist, STORAGE_KEYS.tmChecklist);
+  };
+
+  const exportAllData = () => {
+    const payload = { exportedAt: new Date().toISOString(), trademarks, brandBank, tmChecklist, copyrights, oppByRgp, oppAgainstRgp, decisionToOpposeTm, crOppByRgp, crOppAgainstRgp, decisionToOpposeCopyright, ecommerce, misc, watchlist, complaints, sheets };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `rgp-dashboard-data-${today()}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+  const importAllData = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const incoming = JSON.parse(evt.target.result);
+        const mergeArr = (current, incomingArr) => {
+          if (!Array.isArray(incomingArr)) return current;
+          const existingIds = new Set(current.map((x) => x.id));
+          return [...incomingArr.filter((x) => x.id && !existingIds.has(x.id)), ...current];
+        };
+        const pairs = [
+          [trademarks, setTrademarks, incoming.trademarks, STORAGE_KEYS.trademarks],
+          [brandBank, setBrandBank, incoming.brandBank, STORAGE_KEYS.brandBank],
+          [tmChecklist, setTmChecklist, incoming.tmChecklist, STORAGE_KEYS.tmChecklist],
+          [copyrights, setCopyrights, incoming.copyrights, STORAGE_KEYS.copyrights],
+          [oppByRgp, setOppByRgp, incoming.oppByRgp, STORAGE_KEYS.oppByRgp],
+          [oppAgainstRgp, setOppAgainstRgp, incoming.oppAgainstRgp, STORAGE_KEYS.oppAgainstRgp],
+          [decisionToOpposeTm, setDecisionToOpposeTm, incoming.decisionToOpposeTm, STORAGE_KEYS.decisionToOpposeTm],
+          [crOppByRgp, setCrOppByRgp, incoming.crOppByRgp, STORAGE_KEYS.crOppByRgp],
+          [crOppAgainstRgp, setCrOppAgainstRgp, incoming.crOppAgainstRgp, STORAGE_KEYS.crOppAgainstRgp],
+          [decisionToOpposeCopyright, setDecisionToOpposeCopyright, incoming.decisionToOpposeCopyright, STORAGE_KEYS.decisionToOpposeCopyright],
+          [ecommerce, setEcommerce, incoming.ecommerce, STORAGE_KEYS.ecommerce],
+          [misc, setMisc, incoming.misc, STORAGE_KEYS.misc],
+          [watchlist, setWatchlist, incoming.watchlist, STORAGE_KEYS.watchlist],
+          [complaints, setComplaints, incoming.complaints, STORAGE_KEYS.complaints],
+          [sheets, setSheets, incoming.sheets, STORAGE_KEYS.sheets],
+        ];
+        let addedCount = 0;
+        pairs.forEach(([current, setter, incomingArr, key]) => {
+          const merged = mergeArr(current, incomingArr);
+          addedCount += merged.length - current.length;
+          setter(merged); persist(key, merged);
+        });
+        setExportImportMsg(`Merged file — ${addedCount} new record(s) added, duplicates skipped.`);
+      } catch (err) { setExportImportMsg("Could not read this file — must be a JSON export from this dashboard."); }
+    };
+    reader.readAsText(file); e.target.value = "";
+  };
+
+  const syncFromPortal = async () => {
+    if (!syncUrl.trim()) { setSyncStatus("Paste your Apps Script Web App URL first."); return; }
+    setSyncing(true); setSyncStatus("Syncing...");
+    try {
+      const res = await fetch(syncUrl.trim());
+      const rows = await res.json();
+      if (!Array.isArray(rows)) throw new Error("Unexpected response");
+      const existingIds = new Set(complaints.map((c) => c.portalId).filter(Boolean));
+      const fresh = rows.filter((r) => r.id && !existingIds.has(r.id));
+      const mapped = fresh.map((r) => ({
+        id: uid("cp"), sheetId: null, portalId: r.id, text: r.text || "(no description)",
+        filedBy: r.filedBy || "Public Portal", companyName: r.companyName || "", companyAddress: "", productName: "",
+        marketed: "", salePercentage: r.saleVolume || "", similarityIssue: r.similarityIssue || "Trademark",
+        enlistmentRegNo: "", similarTo: r.similarProduct || "", certifiedMark: "",
+        date: r.date || today(), images: r.image ? [r.image] : [], resolved: String(r.resolved).toUpperCase() === "TRUE", resolvedDate: r.resolvedDate || "",
+      }));
+      if (mapped.length > 0) { const updated = [...mapped, ...complaints]; setComplaints(updated); persist(STORAGE_KEYS.complaints, updated); }
+      setSyncStatus(mapped.length > 0 ? `Pulled ${mapped.length} new complaint(s).` : "Up to date — no new complaints.");
+    } catch (err) { setSyncStatus("Sync failed — check the URL is a deployed Apps Script Web App with public access."); }
+    setSyncing(false);
+  };
+
+  // ---------- Trademark Portfolio ----------
+  const [newTm, setNewTm] = useState({ name: "", cls: "Class 5", status: "Applied", appliedDate: today(), advertisedDate: "", certifiedDate: "", drapEnlisted: false, enlistmentRegNo: "", enlistmentRegDate: "", assignedProduct: "", tmApplicationNo: "", renewalDate: "", marketed: "", marketedDate: "", salePercentage: "" });
+  const [tmFilter, setTmFilter] = useState("all");
+  const addTrademark = () => {
+    if (!newTm.name.trim()) return;
+    const entry = { id: uid("tm"), sheetId: null, ...newTm };
+    const updated = [entry, ...trademarks]; setTrademarks(updated); persist(STORAGE_KEYS.trademarks, updated);
+    setNewTm({ name: "", cls: "Class 5", status: "Applied", appliedDate: today(), advertisedDate: "", certifiedDate: "", drapEnlisted: false, enlistmentRegNo: "", enlistmentRegDate: "", assignedProduct: "", tmApplicationNo: "", renewalDate: "", marketed: "", marketedDate: "", salePercentage: "" });
+  };
+  const updateTm = (id, field, value) => { const updated = trademarks.map((p) => p.id === id ? { ...p, [field]: value } : p); setTrademarks(updated); persist(STORAGE_KEYS.trademarks, updated); };
+  const removeTm = (id) => { const updated = trademarks.filter((p) => p.id !== id); setTrademarks(updated); persist(STORAGE_KEYS.trademarks, updated); };
+  const filteredTrademarks = useMemo(() => {
+    if (tmFilter === "drap") return trademarks.filter((t) => t.drapEnlisted);
+    if (tmFilter === "notdrap") return trademarks.filter((t) => !t.drapEnlisted);
+    return trademarks;
+  }, [trademarks, tmFilter]);
+
+  // ---------- Search Before TM Filing ----------
+  const [newBankName, setNewBankName] = useState("");
+  const addBankName = () => {
+    if (!newBankName.trim()) return;
+    const entry = { id: uid("bank"), sheetId: null, name: newBankName.trim() };
+    const updated = [entry, ...brandBank]; setBrandBank(updated); persist(STORAGE_KEYS.brandBank, updated);
+    setNewBankName("");
+  };
+  const removeBankName = (id) => { const updated = brandBank.filter((b) => b.id !== id); setBrandBank(updated); persist(STORAGE_KEYS.brandBank, updated); };
+  const [newCandidate, setNewCandidate] = useState("");
+  const addCandidate = () => {
+    if (!newCandidate.trim()) return;
+    const entry = { id: uid("cand"), sheetId: null, name: newCandidate.trim(), dateAdded: today(), wipo: "", pharmabridge: "", drapPortal: "", lawyerTM55: "", notes: "" };
+    const updated = [entry, ...tmChecklist]; setTmChecklist(updated); persist(STORAGE_KEYS.tmChecklist, updated);
+    setNewCandidate("");
+  };
+  const updateCandidate = (id, field, value) => { const updated = tmChecklist.map((c) => c.id === id ? { ...c, [field]: value } : c); setTmChecklist(updated); persist(STORAGE_KEYS.tmChecklist, updated); };
+  const removeCandidate = (id) => { const updated = tmChecklist.filter((c) => c.id !== id); setTmChecklist(updated); persist(STORAGE_KEYS.tmChecklist, updated); };
+  const candidateOverallStatus = (c) => {
+    const fields = [c.wipo, c.pharmabridge, c.drapPortal, c.lawyerTM55];
+    const best = bestMatchInBank(c.name, combinedBankNames);
+    const highRisk = best.score >= 70;
+    if (fields.some((f) => f === "")) return "Checking in Progress";
+    if (fields.every((f) => f === "Yes") && !highRisk) return "Available for Filing";
+    return "Not Available";
+  };
+
+  // ---------- Copyright (simple registry) ----------
+  const [newCr, setNewCr] = useState({ name: "", status: "Applied", appliedDate: today(), advertisedDate: "", certifiedDate: "", drapEnlisted: false, regNo: "", regDate: "", marketed: "", marketedDate: "", salePercentage: "" });
+  const addCopyright = () => {
+    if (!newCr.name.trim()) return;
+    const entry = { id: uid("cr"), sheetId: null, ...newCr };
+    const updated = [entry, ...copyrights]; setCopyrights(updated); persist(STORAGE_KEYS.copyrights, updated);
+    setNewCr({ name: "", status: "Applied", appliedDate: today(), advertisedDate: "", certifiedDate: "", drapEnlisted: false, regNo: "", regDate: "", marketed: "", marketedDate: "", salePercentage: "" });
+  };
+  const updateCr = (id, field, value) => { const updated = copyrights.map((c) => c.id === id ? { ...c, [field]: value } : c); setCopyrights(updated); persist(STORAGE_KEYS.copyrights, updated); };
+  const removeCr = (id) => { const updated = copyrights.filter((c) => c.id !== id); setCopyrights(updated); persist(STORAGE_KEYS.copyrights, updated); };
+
+  // ---------- Generic Opposition table CRUD (used by all 4: TM by/against, Copyright by/against) ----------
+  function makeOppCrud(list, setList, storageKey, extra) {
+    const blank = {
+      rgpStatus: "", rgpBrandName: "", rgpIdNo: "", rgpDate: "", rgpMarketed: "", rgpSalePercentage: "", rgpMarketedDate: "",
+      otherStatus: "", otherBrandName: "", otherIdNo: "", otherDate: "", otherMarketed: "", otherSalePercentage: "", otherMarketedDate: "",
+      niceClass: "Class 5", filedDate: today(), companyName: "", companyAddress: "", workDesign: "", status: "",
+    };
+    const add = (form) => {
+      const entry = { id: uid("opp"), sheetId: null, ...form };
+      const updated = [entry, ...list]; setList(updated); persist(storageKey, updated);
+    };
+    const update = (id, field, value) => { const updated = list.map((r) => r.id === id ? { ...r, [field]: value } : r); setList(updated); persist(storageKey, updated); };
+    const remove = (id) => { const updated = list.filter((r) => r.id !== id); setList(updated); persist(storageKey, updated); };
+    return { blank, add, update, remove };
+  }
+  const oppByRgpCrud = makeOppCrud(oppByRgp, setOppByRgp, STORAGE_KEYS.oppByRgp);
+  const oppAgainstRgpCrud = makeOppCrud(oppAgainstRgp, setOppAgainstRgp, STORAGE_KEYS.oppAgainstRgp);
+  const crOppByRgpCrud = makeOppCrud(crOppByRgp, setCrOppByRgp, STORAGE_KEYS.crOppByRgp);
+  const crOppAgainstRgpCrud = makeOppCrud(crOppAgainstRgp, setCrOppAgainstRgp, STORAGE_KEYS.crOppAgainstRgp);
+
+  // ---------- Decision to Oppose TM / Copyright (complaint-linked, with resolve sync) ----------
+  function makeDecisionCrud(list, setList, storageKey, onFileInIpo) {
+    const update = (id, field, value) => {
+      const updated = list.map((d) => d.id === id ? { ...d, [field]: value } : d);
+      setList(updated); persist(storageKey, updated);
+      if (field === "caseStatus") {
+        const row = updated.find((d) => d.id === id);
+        if (row && row.complaintId) {
+          const isTerminal = TERMINAL_CASE_STATUSES.includes(value);
+          const updatedComplaints = complaints.map((c) => c.id === row.complaintId ? { ...c, resolved: isTerminal, resolvedDate: isTerminal ? today() : "" } : c);
+          setComplaints(updatedComplaints); persist(STORAGE_KEYS.complaints, updatedComplaints);
+        }
+      }
+    };
+    const toggleTag = (id, tag) => {
+      const row = list.find((d) => d.id === id); if (!row) return;
+      const has = row.decision.includes(tag);
+      const newTags = has ? row.decision.filter((t) => t !== tag) : [...row.decision, tag];
+      update(id, "decision", newTags);
+      if (!has && tag === "Filed in IPO (Opposition)" && onFileInIpo) onFileInIpo(row);
+    };
+    const remove = (id) => { const updated = list.filter((d) => d.id !== id); setList(updated); persist(storageKey, updated); };
+    return { update, toggleTag, remove };
+  }
+  const decisionTmCrud = makeDecisionCrud(decisionToOpposeTm, setDecisionToOpposeTm, STORAGE_KEYS.decisionToOpposeTm, (row) => {
+    const entry = { id: uid("opp"), sheetId: null, ...oppByRgpCrud.blank, companyName: row.companyName, filedDate: today() };
+    const updated = [entry, ...oppByRgp]; setOppByRgp(updated); persist(STORAGE_KEYS.oppByRgp, updated);
+  });
+  const decisionCrCrud = makeDecisionCrud(decisionToOpposeCopyright, setDecisionToOpposeCopyright, STORAGE_KEYS.decisionToOpposeCopyright, (row) => {
+    const entry = { id: uid("opp"), sheetId: null, ...crOppByRgpCrud.blank, companyName: row.companyName, filedDate: today() };
+    const updated = [entry, ...crOppByRgp]; setCrOppByRgp(updated); persist(STORAGE_KEYS.crOppByRgp, updated);
+  });
+
+
+  // ---------- E-commerce ----------
+  const [newEcom, setNewEcom] = useState({ brandName: "", product: "", applicationDate: today(), applicationNumber: "", applicationStatus: "Applied" });
+  const addEcom = () => {
+    if (!newEcom.brandName.trim()) return;
+    const entry = { id: uid("ec"), sheetId: null, ...newEcom };
+    const updated = [entry, ...ecommerce]; setEcommerce(updated); persist(STORAGE_KEYS.ecommerce, updated);
+    setNewEcom({ brandName: "", product: "", applicationDate: today(), applicationNumber: "", applicationStatus: "Applied" });
+  };
+  const updateEcom = (id, field, value) => { const updated = ecommerce.map((e) => e.id === id ? { ...e, [field]: value } : e); setEcommerce(updated); persist(STORAGE_KEYS.ecommerce, updated); };
+  const removeEcom = (id) => { const updated = ecommerce.filter((e) => e.id !== id); setEcommerce(updated); persist(STORAGE_KEYS.ecommerce, updated); };
+
+  // ---------- Misc ----------
+  const [newMisc, setNewMisc] = useState({ title: "", description: "", date: today() });
+  const addMisc = () => {
+    if (!newMisc.title.trim()) return;
+    const entry = { id: uid("mi"), sheetId: null, ...newMisc };
+    const updated = [entry, ...misc]; setMisc(updated); persist(STORAGE_KEYS.misc, updated);
+    setNewMisc({ title: "", description: "", date: today() });
+  };
+  const removeMisc = (id) => { const updated = misc.filter((m) => m.id !== id); setMisc(updated); persist(STORAGE_KEYS.misc, updated); };
+
+  // ---------- Journal Watchlist ----------
+  const [newMark, setNewMark] = useState({ name: "", cls: "Class 5" });
+  const addToWatchlist = () => {
+    if (!newMark.name.trim()) return;
+    const entry = { id: uid("wl"), sheetId: null, name: newMark.name, cls: newMark.cls, date: today(), stage: "Monitor" };
+    const updated = [entry, ...watchlist]; setWatchlist(updated); persist(STORAGE_KEYS.watchlist, updated);
+    setNewMark({ name: "", cls: "Class 5" });
+  };
+  const advanceStage = (id) => {
+    const updated = watchlist.map((w) => w.id !== id ? w : { ...w, stage: WATCHLIST_STAGES[Math.min(WATCHLIST_STAGES.indexOf(w.stage) + 1, WATCHLIST_STAGES.length - 1)] });
+    setWatchlist(updated); persist(STORAGE_KEYS.watchlist, updated);
+  };
+  const removeMark = (id) => { const updated = watchlist.filter((w) => w.id !== id); setWatchlist(updated); persist(STORAGE_KEYS.watchlist, updated); };
+
+  // ---------- Complaints ----------
+  const [newComplaint, setNewComplaint] = useState({ text: "", filedBy: "Field Force", companyName: "", companyAddress: "", productName: "", marketed: "", salePercentage: "", similarityIssue: "Trademark", enlistmentRegNo: "", similarTo: "", certifiedMark: "", images: [] });
+  const handleComplaintImages = async (e) => {
+    const files = Array.from(e.target.files || []); if (!files.length) return;
+    try {
+      const dataUrls = await Promise.all(files.map((f) => fileToCompressedDataUrl(f)));
+      setNewComplaint((prev) => ({ ...prev, images: [...prev.images, ...dataUrls].slice(0, 8) }));
+    } catch (err) { console.error("Image processing failed", err); }
+    e.target.value = "";
+  };
+  const removeNewComplaintImage = (idx) => setNewComplaint((prev) => ({ ...prev, images: prev.images.filter((_, i) => i !== idx) }));
+  const addComplaint = () => {
+    if (!newComplaint.text.trim()) return;
+    const entry = { id: uid("cp"), sheetId: null, date: today(), resolved: false, resolvedDate: "", ...newComplaint };
+    const updated = [entry, ...complaints]; setComplaints(updated); persist(STORAGE_KEYS.complaints, updated);
+    setNewComplaint({ text: "", filedBy: "Field Force", companyName: "", companyAddress: "", productName: "", marketed: "", salePercentage: "", similarityIssue: "Trademark", enlistmentRegNo: "", similarTo: "", certifiedMark: "", images: [] });
+  };
+  const removeComplaint = (id) => { const updated = complaints.filter((c) => c.id !== id); setComplaints(updated); persist(STORAGE_KEYS.complaints, updated); };
+  const toggleComplaintResolved = (id) => {
+    const updated = complaints.map((c) => c.id === id ? { ...c, resolved: !c.resolved, resolvedDate: !c.resolved ? today() : "" } : c);
+    setComplaints(updated); persist(STORAGE_KEYS.complaints, updated);
+  };
+  const overdueComplaints = useMemo(() => complaints.filter((c) => !c.resolved && (daysSince(c.date) ?? 0) >= 15), [complaints]);
+
+  // ---------- Overview stats ----------
+  const countDecisionTag = (rows, tag) => rows.filter((r) => r.decision && r.decision.includes(tag)).length;
+  const countCaseStatus = (rows, status) => rows.filter((r) => r.caseStatus === status).length;
+  const stats = useMemo(() => ({
+    tmApplied: trademarks.filter((t) => t.status === "Applied").length,
+    tmAdvertised: trademarks.filter((t) => t.status === "Advertised").length,
+    tmCertified: trademarks.filter((t) => t.status === "Certified").length,
+    tmAbandoned: trademarks.filter((t) => t.status === "Abandoned").length,
+    tmDrapEnlisted: trademarks.filter((t) => t.drapEnlisted).length,
+    namesChecked: tmChecklist.length,
+    availableForFiling: tmChecklist.filter((c) => candidateOverallStatus(c) === "Available for Filing").length,
+    notAvailable: tmChecklist.filter((c) => candidateOverallStatus(c) === "Not Available").length,
+    checkingInProgress: tmChecklist.filter((c) => candidateOverallStatus(c) === "Checking in Progress").length,
+    copyrightsTotal: copyrights.length,
+    copyrightsApplied: copyrights.filter((c) => c.status === "Applied").length,
+    copyrightsCertified: copyrights.filter((c) => c.status === "Certified").length,
+    ecomApplied: ecommerce.filter((e) => e.applicationStatus === "Applied").length,
+    ecomCertified: ecommerce.filter((e) => e.applicationStatus === "Certified").length,
+    oppByRgpTotal: oppByRgp.length,
+    oppAgainstRgpTotal: oppAgainstRgp.length,
+    crOppByRgpTotal: crOppByRgp.length,
+    crOppAgainstRgpTotal: crOppAgainstRgp.length,
+    complaintsTotal: complaints.length,
+    tmDecisionTags: DECISION_OPTIONS.slice(0, 4).map((tag) => ({ label: tag, value: countDecisionTag(decisionToOpposeTm, tag) })),
+    tmCaseStatuses: CASE_STATUS_OPTIONS.map((s) => ({ label: s, value: countCaseStatus(decisionToOpposeTm, s) })),
+    crDecisionTags: DECISION_OPTIONS.slice(0, 4).map((tag) => ({ label: tag, value: countDecisionTag(decisionToOpposeCopyright, tag) })),
+    crCaseStatuses: CASE_STATUS_OPTIONS.map((s) => ({ label: s, value: countCaseStatus(decisionToOpposeCopyright, s) })),
+    // eslint-disable-next-line
+  }), [trademarks, tmChecklist, copyrights, ecommerce, oppByRgp, oppAgainstRgp, crOppByRgp, crOppAgainstRgp, complaints, decisionToOpposeTm, decisionToOpposeCopyright]);
+
+  if (loading) return null;
+
+  return (
+    <div style={styles.page}>
+      <style>{fontImport}</style>
+      <aside style={styles.sidebar}>
+        <div style={styles.brand}><Shield size={22} color="#D9A441" /><span style={styles.brandText}>RG Pharmaceutica</span></div>
+        <div style={styles.sideSub}>Trademark &amp; Brand Management Dashboard</div>
+        <nav style={styles.nav}>
+          {TABS.map((t) => (
+            <div key={t.key} style={activeTab === t.key ? styles.navItemActive : styles.navItem} onClick={() => setActiveTab(t.key)} role="button">
+              <t.Icon size={16} /> {t.label}
+            </div>
+          ))}
+        </nav>
+        {user && (
+          <div style={styles.userFooter}>
+            <div style={{ fontSize: 11.5, color: "#B8C0D0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</div>
+            <button style={styles.logoutBtn} onClick={onLogout}>Sign out</button>
+          </div>
+        )}
+        <div style={styles.userFooter}>
+          <button style={styles.logoutBtn} onClick={() => { sessionStorage.removeItem("rgp_simple_unlocked"); window.location.reload(); }}>🔒 Lock Dashboard</button>
+        </div>
+        {!FIREBASE_ENABLED && <div style={{ fontSize: 10.5, color: "#8A93A6", marginTop: 10, lineHeight: 1.4 }}>Local-only mode — set up Firebase to sync live across devices.</div>}
+      </aside>
+
+      <main style={styles.main}>
+        {activeTab === "overview" && (
+          <OverviewTab stats={stats} setActiveTab={setActiveTab} setFocusId={setFocusId}
+            trademarks={trademarks} copyrights={copyrights} complaints={complaints}
+            oppByRgp={oppByRgp} oppAgainstRgp={oppAgainstRgp} crOppByRgp={crOppByRgp} crOppAgainstRgp={crOppAgainstRgp}
+            ecommerce={ecommerce} decisionToOpposeTm={decisionToOpposeTm} decisionToOpposeCopyright={decisionToOpposeCopyright} />
+        )}
+
+        {activeTab === "searchtm" && (
+          <SearchTmTab brandBank={brandBank} newBankName={newBankName} setNewBankName={setNewBankName} addBankName={addBankName} removeBankName={removeBankName}
+            enlistedNames={enlistedNames} combinedBankNames={combinedBankNames}
+            tmChecklist={tmChecklist} newCandidate={newCandidate} setNewCandidate={setNewCandidate} addCandidate={addCandidate}
+            updateCandidate={updateCandidate} removeCandidate={removeCandidate} candidateOverallStatus={candidateOverallStatus}
+            bankFileRef={fileInputRefs.brandBank} onBankExcel={handleBrandBankExcel} bankImportMsg={importMsg.brandBank}
+            checklistFileRef={fileInputRefs.tmChecklist} onChecklistExcel={handleTmChecklistExcel} checklistImportMsg={importMsg.tmChecklist} />
+        )}
+
+        {activeTab === "trademark" && (
+          <TrademarkTab trademarks={filteredTrademarks} allCount={trademarks.length} tmFilter={tmFilter} setTmFilter={setTmFilter}
+            newTm={newTm} setNewTm={setNewTm} addTrademark={addTrademark} updateTm={updateTm} removeTm={removeTm}
+            fileInputRef={fileInputRefs.trademark} onExcel={handleTmExcel} importMsg={importMsg.trademark} focusId={focusId} />
+        )}
+
+        {activeTab === "tmopposition" && (
+          <TmOppositionTab
+            oppByRgp={oppByRgp} oppByRgpCrud={oppByRgpCrud} oppByRgpFileRef={fileInputRefs.oppByRgp} onOppByRgpExcel={handleOppByRgpExcel} oppByRgpImportMsg={importMsg.oppByRgp}
+            oppAgainstRgp={oppAgainstRgp} oppAgainstRgpCrud={oppAgainstRgpCrud} oppAgainstRgpFileRef={fileInputRefs.oppAgainstRgp} onOppAgainstRgpExcel={handleOppAgainstRgpExcel} oppAgainstRgpImportMsg={importMsg.oppAgainstRgp}
+            decisionToOpposeTm={decisionToOpposeTm} decisionTmCrud={decisionTmCrud} trademarks={trademarks} />
+        )}
+
+        {activeTab === "copyright" && (
+          <CopyrightTab copyrights={copyrights} newCr={newCr} setNewCr={setNewCr} addCopyright={addCopyright} updateCr={updateCr} removeCr={removeCr}
+            fileInputRef={fileInputRefs.copyright} onExcel={handleCrExcel} importMsg={importMsg.copyright} />
+        )}
+
+        {activeTab === "copyrightopposition" && (
+          <CopyrightOppositionTab
+            crOppByRgp={crOppByRgp} crOppByRgpCrud={crOppByRgpCrud} crOppByRgpFileRef={fileInputRefs.crOppByRgp} onCrOppByRgpExcel={handleCrOppByRgpExcel} crOppByRgpImportMsg={importMsg.crOppByRgp}
+            crOppAgainstRgp={crOppAgainstRgp} crOppAgainstRgpCrud={crOppAgainstRgpCrud} crOppAgainstRgpFileRef={fileInputRefs.crOppAgainstRgp} onCrOppAgainstRgpExcel={handleCrOppAgainstRgpExcel} crOppAgainstRgpImportMsg={importMsg.crOppAgainstRgp}
+            decisionToOpposeCopyright={decisionToOpposeCopyright} decisionCrCrud={decisionCrCrud} copyrights={copyrights} />
+        )}
+
+        {activeTab === "enlisted" && <EnlistedTab trademarks={trademarks.filter((t) => t.drapEnlisted)} />}
+
+        {activeTab === "ecommerce" && (
+          <EcommerceTab ecommerce={ecommerce} newEcom={newEcom} setNewEcom={setNewEcom} addEcom={addEcom} updateEcom={updateEcom} removeEcom={removeEcom}
+            fileInputRef={fileInputRefs.ecommerce} onExcel={handleEcomExcel} importMsg={importMsg.ecommerce} />
+        )}
+
+        {activeTab === "misc" && (
+          <MiscTab misc={misc} newMisc={newMisc} setNewMisc={setNewMisc} addMisc={addMisc} removeMisc={removeMisc}
+            fileInputRef={fileInputRefs.misc} onExcel={handleMiscExcel} importMsg={importMsg.misc} />
+        )}
+
+        {activeTab === "watchlist" && (
+          <WatchlistTab watchlist={watchlist} newMark={newMark} setNewMark={setNewMark} addToWatchlist={addToWatchlist}
+            advanceStage={advanceStage} removeMark={removeMark} combinedBankNames={combinedBankNames} />
+        )}
+
+        {activeTab === "complaints" && (
+          <ComplaintsTab complaints={complaints} newComplaint={newComplaint} setNewComplaint={setNewComplaint}
+            addComplaint={addComplaint} removeComplaint={removeComplaint} toggleComplaintResolved={toggleComplaintResolved}
+            handleComplaintImages={handleComplaintImages} removeNewComplaintImage={removeNewComplaintImage}
+            complaintImagesRef={complaintImagesRef} fileInputRef={fileInputRefs.complaints} onExcel={handleComplaintsExcel} importMsg={importMsg.complaints}
+            syncUrl={syncUrl} saveSyncUrl={saveSyncUrl} syncFromPortal={syncFromPortal} syncStatus={syncStatus} syncing={syncing}
+            enlistedNames={enlistedNames} certifiedNames={certifiedNames} />
+        )}
+
+        {activeTab === "sheets" && (
+          <SheetsTab sheets={sheets} deleteSheet={deleteSheet} exportAllData={exportAllData} importAllData={importAllData} importAllRef={importAllRef} exportImportMsg={exportImportMsg} />
+        )}
+
+        <div style={{ fontSize: 11, color: "#9AA5B8", textAlign: "center", marginTop: 8, marginBottom: 24 }}>
+          Data saved automatically{FIREBASE_ENABLED ? " and synced live across your signed-in team" : " to this browser's local workspace"}.
+        </div>
+      </main>
+    </div>
+  );
+}
+
+// =============== TAB COMPONENTS ===============
+
+const GROUP_COLORS = {
+  "Search Before TM Filing": "#2E6F6E", "Trademark Portfolio": "#1B2A4A", "Copyrights": "#6B4FA0",
+  "E-commerce": "#B9821F", "TM Opposition": "#B54834", "Copyright Opposition": "#A85C2E", "Complaints": "#D9A441",
+};
+
+function DonutChart({ data, colors, size = 150 }) {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return <EmptyState text="No data yet." />;
+  const r = size / 2 - 14, cx = size / 2, cy = size / 2;
+  let angleStart = -90;
+  const slices = data.filter((d) => d.value > 0).map((d, i) => {
+    const angle = (d.value / total) * 360;
+    const x1 = cx + r * Math.cos((Math.PI * angleStart) / 180), y1 = cy + r * Math.sin((Math.PI * angleStart) / 180);
+    const angleEnd = angleStart + angle;
+    const x2 = cx + r * Math.cos((Math.PI * angleEnd) / 180), y2 = cy + r * Math.sin((Math.PI * angleEnd) / 180);
+    const largeArc = angle > 180 ? 1 : 0;
+    const path = `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${largeArc} 1 ${x2},${y2} Z`;
+    const color = colors[i % colors.length];
+    angleStart = angleEnd;
+    return { path, color, label: d.label, value: d.value };
+  });
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} stroke="#fff" strokeWidth="2" />)}
+        <circle cx={cx} cy={cy} r={r * 0.55} fill="#fff" />
+        <text x={cx} y={cy + 5} textAnchor="middle" fontSize="16" fontWeight="700" fill="#1B2A4A">{total}</text>
+      </svg>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {slices.map((s, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, display: "inline-block" }} />
+            <span style={{ color: "#3A3F4B" }}>{s.label}</span><span style={{ color: "#9AA5B8" }}>({s.value})</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BarChart({ data, color, height = 140 }) {
+  const max = Math.max(1, ...data.map((d) => d.value));
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height, padding: "8px 4px 0" }}>
+      {data.map((d) => (
+        <div key={d.label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", minWidth: 0 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: "#3A3F4B" }}>{d.value}</div>
+          <div style={{ width: "70%", background: color, borderRadius: "4px 4px 0 0", height: Math.max(3, (d.value / max) * (height - 30)), transition: "height 0.3s" }} />
+          <div style={{ fontSize: 9.5, color: "#9AA5B8", marginTop: 4, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%" }} title={d.label}>{d.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ClickableMiniStat({ icon, label, value, color, onClick }) {
+  return (
+    <div style={{ ...styles.miniStat, cursor: onClick ? "pointer" : "default", borderLeft: `3px solid ${color || "#E1E4EA"}` }} onClick={onClick}>
+      {icon}<div><div style={styles.miniStatValue}>{value}</div><div style={styles.miniStatLabel}>{label}</div></div>
+    </div>
+  );
+}
+
+function OverviewTab({ stats, setActiveTab, setFocusId, trademarks, copyrights, complaints, oppByRgp, oppAgainstRgp, crOppByRgp, crOppAgainstRgp, ecommerce, decisionToOpposeTm, decisionToOpposeCopyright }) {
+  const [query, setQuery] = useState("");
+
+  const searchResults = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.toLowerCase();
+    const results = [];
+    trademarks.forEach((t) => t.name.toLowerCase().includes(q) && results.push({ id: t.id, label: t.name, sub: `TM Portfolio — ${t.status}`, tab: "trademark" }));
+    copyrights.forEach((c) => c.name.toLowerCase().includes(q) && results.push({ id: c.id, label: c.name, sub: `Copyright — ${c.status}`, tab: "copyright" }));
+    complaints.forEach((c) => (c.text.toLowerCase().includes(q) || (c.companyName || "").toLowerCase().includes(q)) && results.push({ id: c.id, label: c.companyName || c.text.slice(0, 30), sub: "Complaint Log", tab: "complaints" }));
+    ecommerce.forEach((e) => e.brandName.toLowerCase().includes(q) && results.push({ id: e.id, label: e.brandName, sub: "E-commerce", tab: "ecommerce" }));
+    return results.slice(0, 8);
+  }, [query, trademarks, copyrights, complaints, ecommerce]);
+
+  const yearlyComplaints = useMemo(() => {
+    const byYear = {};
+    complaints.forEach((c) => { const y = (c.date || "").slice(0, 4); if (y) byYear[y] = (byYear[y] || 0) + 1; });
+    return Object.entries(byYear).sort().map(([label, value]) => ({ label, value }));
+  }, [complaints]);
+
+  const generateReport = () => {
+    const section = (title, rows) => `<h3 style="font-family:Georgia,serif;margin:24px 0 8px;color:#1B2A4A;border-bottom:2px solid #EEF0F3;padding-bottom:6px;">${title}</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">${rows.map((r) => `<tr><td style="padding:5px 8px;color:#6B7280;">${r[0]}</td><td style="padding:5px 8px;font-weight:700;text-align:right;">${r[1]}</td></tr>`).join("")}</table>`;
+    const chartSection = (title, content) => `<h3 style="font-family:Georgia,serif;margin:24px 0 8px;color:#1B2A4A;border-bottom:2px solid #EEF0F3;padding-bottom:6px;">${title}</h3>${content}`;
+
+    const tmData = [{ label: "Applied", value: stats.tmApplied }, { label: "Advertised", value: stats.tmAdvertised }, { label: "Certified", value: stats.tmCertified }, { label: "Abandoned", value: stats.tmAbandoned }];
+    const crData = [{ label: "Applied", value: stats.copyrightsApplied }, { label: "Certified", value: stats.copyrightsCertified }];
+    const oppData = [{ label: "By RGP", value: stats.oppByRgpTotal }, { label: "Against RGP", value: stats.oppAgainstRgpTotal }];
+    const crOppData = [{ label: "By RGP", value: stats.crOppByRgpTotal }, { label: "Against RGP", value: stats.crOppAgainstRgpTotal }];
+
+    const body = `
+        <p style="font-size:13.5px;line-height:1.6;color:#3A3F4B;">This report summarizes the current state of RG Pharmaceutica's trademark, copyright, opposition, and complaint activity across all tracked categories.</p>
+
+        ${chartSection("Trademark Portfolio", statCards([
+          { label: "Applied", value: stats.tmApplied, color: "#1B2A4A" }, { label: "Advertised", value: stats.tmAdvertised, color: "#1B2A4A" },
+          { label: "Certified", value: stats.tmCertified, color: "#2E6F6E" }, { label: "Abandoned", value: stats.tmAbandoned, color: "#B9821F" },
+          { label: "DRAP Enlisted/Registered", value: stats.tmDrapEnlisted, color: "#2E6F6E" },
+        ]) + svgBarChart(tmData, "#1B2A4A"))}
+
+        ${section("Search Before TM Filing", [["Names Checked", stats.namesChecked], ["Available for Filing", stats.availableForFiling], ["Not Available", stats.notAvailable], ["In Progress", stats.checkingInProgress]])}
+
+        ${chartSection("Copyrights", statCards([{ label: "Total", value: stats.copyrightsTotal, color: "#6B4FA0" }, { label: "Applied", value: stats.copyrightsApplied, color: "#6B4FA0" }, { label: "Certified", value: stats.copyrightsCertified, color: "#6B4FA0" }]) + svgDonutChart(crData, ["#6B4FA0", "#2E6F6E"]))}
+
+        ${chartSection("TM Opposition", svgDonutChart(oppData, ["#B54834", "#D9A441"]))}
+        ${chartSection("Copyright Opposition", svgDonutChart(crOppData, ["#A85C2E", "#D9A441"]))}
+
+        ${section("Complaints", [["Total Logged", stats.complaintsTotal], ...stats.tmCaseStatuses.filter((s) => s.value > 0).map((s) => ["TM: " + s.label, s.value]), ...stats.crCaseStatuses.filter((s) => s.value > 0).map((s) => ["Copyright: " + s.label, s.value])])}
+        ${yearlyComplaints.length > 0 ? chartSection("Complaints by Year", svgBarChart(yearlyComplaints, "#D9A441")) : ""}
+    `;
+    openReportWindow("Overview — Brand Protection Report", body);
+  };
+
+  return (
+    <div>
+      <header style={styles.header}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 10 }}>
+          <div><div style={styles.eyebrow}>OVERVIEW</div><h1 style={styles.h1}>Today's Brand Risk Picture</h1></div>
+          <button style={styles.addBtn} onClick={generateReport}>📄 Generate Report (PDF)</button>
+        </div>
+      </header>
+
+      <section style={{ ...styles.card, position: "relative" }}>
+        <input style={{ ...styles.input, width: "100%" }} placeholder="🔍 Search trademarks, copyrights, complaints, e-commerce brands..." value={query} onChange={(e) => setQuery(e.target.value)} />
+        {searchResults.length > 0 && (
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+            {searchResults.map((r, i) => (
+              <div key={i} onClick={() => { setActiveTab(r.tab); setFocusId(r.id); setQuery(""); }} style={{ padding: "8px 10px", borderRadius: 8, background: "#F7F5F0", cursor: "pointer", display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>{r.label}</span><span style={{ fontSize: 11, color: "#6B7280" }}>{r.sub} →</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <StatGroup title="Trademark Portfolio" color={GROUP_COLORS["Trademark Portfolio"]} onClick={() => setActiveTab("trademark")}>
+        <ClickableMiniStat icon={<ShieldCheck size={15} color="#2E6F6E" />} label="Applied" value={stats.tmApplied} color={GROUP_COLORS["Trademark Portfolio"]} onClick={() => setActiveTab("trademark")} />
+        <ClickableMiniStat icon={<ShieldCheck size={15} color="#2E6F6E" />} label="Advertised" value={stats.tmAdvertised} color={GROUP_COLORS["Trademark Portfolio"]} onClick={() => setActiveTab("trademark")} />
+        <ClickableMiniStat icon={<BadgeCheck size={15} color="#2E6F6E" />} label="Certified" value={stats.tmCertified} color={GROUP_COLORS["Trademark Portfolio"]} onClick={() => setActiveTab("trademark")} />
+        <ClickableMiniStat icon={<AlertTriangle size={15} color="#B9821F" />} label="Abandoned" value={stats.tmAbandoned} color={GROUP_COLORS["Trademark Portfolio"]} onClick={() => setActiveTab("trademark")} />
+        <ClickableMiniStat icon={<PackageCheck size={15} color="#2E6F6E" />} label="DRAP Enlisted/Registered" value={stats.tmDrapEnlisted} color={GROUP_COLORS["Trademark Portfolio"]} onClick={() => setActiveTab("enlisted")} />
+      </StatGroup>
+      <div style={styles.card}>
+        <div style={styles.cardTitle}>TM Portfolio by Status</div>
+        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center" }}>
+          <DonutChart colors={["#2E6F6E", "#6B4FA0", "#1B2A4A", "#B9821F"]} data={[{ label: "Applied", value: stats.tmApplied }, { label: "Advertised", value: stats.tmAdvertised }, { label: "Certified", value: stats.tmCertified }, { label: "Abandoned", value: stats.tmAbandoned }]} />
+          <div style={{ flex: 1, minWidth: 200 }}><BarChart color={GROUP_COLORS["Trademark Portfolio"]} data={[{ label: "Applied", value: stats.tmApplied }, { label: "Advertised", value: stats.tmAdvertised }, { label: "Certified", value: stats.tmCertified }, { label: "Abandoned", value: stats.tmAbandoned }]} /></div>
+        </div>
+      </div>
+
+      <StatGroup title="Search Before TM Filing" color={GROUP_COLORS["Search Before TM Filing"]} onClick={() => setActiveTab("searchtm")}>
+        <ClickableMiniStat icon={<SearchIcon size={15} color="#2E6F6E" />} label="Names Checked" value={stats.namesChecked} color={GROUP_COLORS["Search Before TM Filing"]} onClick={() => setActiveTab("searchtm")} />
+        <ClickableMiniStat icon={<BadgeCheck size={15} color="#2E6F6E" />} label="Available for Filing" value={stats.availableForFiling} color={GROUP_COLORS["Search Before TM Filing"]} onClick={() => setActiveTab("searchtm")} />
+        <ClickableMiniStat icon={<AlertTriangle size={15} color="#B54834" />} label="Not Available" value={stats.notAvailable} color={GROUP_COLORS["Search Before TM Filing"]} onClick={() => setActiveTab("searchtm")} />
+        <ClickableMiniStat icon={<Clock size={15} color="#B9821F" />} label="In Progress" value={stats.checkingInProgress} color={GROUP_COLORS["Search Before TM Filing"]} onClick={() => setActiveTab("searchtm")} />
+      </StatGroup>
+
+      <StatGroup title="Copyrights" color={GROUP_COLORS["Copyrights"]} onClick={() => setActiveTab("copyright")}>
+        <ClickableMiniStat icon={<Copyright size={15} color="#6B4FA0" />} label="Total Copyrights" value={stats.copyrightsTotal} color={GROUP_COLORS["Copyrights"]} onClick={() => setActiveTab("copyright")} />
+        <ClickableMiniStat icon={<Copyright size={15} color="#6B4FA0" />} label="Applied" value={stats.copyrightsApplied} color={GROUP_COLORS["Copyrights"]} onClick={() => setActiveTab("copyright")} />
+        <ClickableMiniStat icon={<Copyright size={15} color="#6B4FA0" />} label="Certified" value={stats.copyrightsCertified} color={GROUP_COLORS["Copyrights"]} onClick={() => setActiveTab("copyright")} />
+      </StatGroup>
+      {stats.copyrightsTotal > 0 && (
+        <div style={styles.card}><div style={styles.cardTitle}>Copyright Status Split</div>
+          <DonutChart colors={["#6B4FA0", "#2E6F6E", "#B9821F"]} data={[{ label: "Applied", value: stats.copyrightsApplied }, { label: "Certified", value: stats.copyrightsCertified }, { label: "Other", value: Math.max(0, stats.copyrightsTotal - stats.copyrightsApplied - stats.copyrightsCertified) }]} />
+        </div>
+      )}
+
+      <StatGroup title="E-commerce" color={GROUP_COLORS["E-commerce"]} onClick={() => setActiveTab("ecommerce")}>
+        <ClickableMiniStat icon={<Cart size={15} color="#B9821F" />} label="Applied" value={stats.ecomApplied} color={GROUP_COLORS["E-commerce"]} onClick={() => setActiveTab("ecommerce")} />
+        <ClickableMiniStat icon={<Cart size={15} color="#B9821F" />} label="Certified" value={stats.ecomCertified} color={GROUP_COLORS["E-commerce"]} onClick={() => setActiveTab("ecommerce")} />
+      </StatGroup>
+
+      <StatGroup title="TM Opposition" color={GROUP_COLORS["TM Opposition"]} onClick={() => setActiveTab("tmopposition")}>
+        <ClickableMiniStat icon={<Swords size={15} color="#B54834" />} label="Opposition by RGP" value={stats.oppByRgpTotal} color={GROUP_COLORS["TM Opposition"]} onClick={() => setActiveTab("tmopposition")} />
+        <ClickableMiniStat icon={<Swords size={15} color="#B54834" />} label="Opposition Against RGP" value={stats.oppAgainstRgpTotal} color={GROUP_COLORS["TM Opposition"]} onClick={() => setActiveTab("tmopposition")} />
+      </StatGroup>
+      {(stats.oppByRgpTotal + stats.oppAgainstRgpTotal) > 0 && (
+        <div style={styles.card}><div style={styles.cardTitle}>TM Opposition — by RGP vs Against RGP</div>
+          <DonutChart colors={["#B54834", "#D9A441"]} data={[{ label: "By RGP", value: stats.oppByRgpTotal }, { label: "Against RGP", value: stats.oppAgainstRgpTotal }]} />
+        </div>
+      )}
+
+      <StatGroup title="Copyright Opposition" color={GROUP_COLORS["Copyright Opposition"]} onClick={() => setActiveTab("copyrightopposition")}>
+        <ClickableMiniStat icon={<Copyright size={15} color="#A85C2E" />} label="Copyright Opposition by RGP" value={stats.crOppByRgpTotal} color={GROUP_COLORS["Copyright Opposition"]} onClick={() => setActiveTab("copyrightopposition")} />
+        <ClickableMiniStat icon={<Copyright size={15} color="#A85C2E" />} label="Copyright Opposition Against RGP" value={stats.crOppAgainstRgpTotal} color={GROUP_COLORS["Copyright Opposition"]} onClick={() => setActiveTab("copyrightopposition")} />
+      </StatGroup>
+      {(stats.crOppByRgpTotal + stats.crOppAgainstRgpTotal) > 0 && (
+        <div style={styles.card}><div style={styles.cardTitle}>Copyright Opposition — by RGP vs Against RGP</div>
+          <DonutChart colors={["#A85C2E", "#D9A441"]} data={[{ label: "By RGP", value: stats.crOppByRgpTotal }, { label: "Against RGP", value: stats.crOppAgainstRgpTotal }]} />
+        </div>
+      )}
+
+      <div style={{ marginBottom: 22 }}>
+        <div style={styles.statGroupTitle} onClick={() => setActiveTab("complaints")}>Complaints (click to open Complaint Log)</div>
+        <div style={styles.statRowSmall}><ClickableMiniStat icon={<MessageSquareWarning size={15} color="#D9A441" />} label="Total Logged" value={stats.complaintsTotal} color={GROUP_COLORS["Complaints"]} onClick={() => setActiveTab("complaints")} /></div>
+
+        {yearlyComplaints.length > 1 && (
+          <div style={styles.card}><div style={styles.cardTitle}>Complaints by Year</div><BarChart color={GROUP_COLORS["Complaints"]} data={yearlyComplaints} /></div>
+        )}
+
+        <div style={styles.statSubTitle}>Trademark — Decision</div>
+        <div style={styles.statRowSmall}>{stats.tmDecisionTags.map((d) => <ClickableMiniStat key={d.label} icon={<Swords size={14} color="#6B7280" />} label={d.label} value={d.value} color={GROUP_COLORS["TM Opposition"]} onClick={() => setActiveTab("tmopposition")} />)}</div>
+        <div style={styles.statSubTitle}>Trademark — Case Status</div>
+        <div style={styles.card}><BarChart color={GROUP_COLORS["TM Opposition"]} data={stats.tmCaseStatuses.filter((s) => s.value > 0)} /></div>
+
+        <div style={styles.statSubTitle}>Copyright — Decision</div>
+        <div style={styles.statRowSmall}>{stats.crDecisionTags.map((d) => <ClickableMiniStat key={d.label} icon={<Copyright size={14} color="#6B7280" />} label={d.label} value={d.value} color={GROUP_COLORS["Copyright Opposition"]} onClick={() => setActiveTab("copyrightopposition")} />)}</div>
+        <div style={styles.statSubTitle}>Copyright — Case Status</div>
+        <div style={styles.card}><BarChart color={GROUP_COLORS["Copyright Opposition"]} data={stats.crCaseStatuses.filter((s) => s.value > 0)} /></div>
+      </div>
+    </div>
+  );
+}
+
+function StatGroup({ title, children, color, onClick }) {
+  return <div style={{ marginBottom: 14 }}><div style={{ ...styles.statGroupTitle, color: color || "#3A3F4B", cursor: onClick ? "pointer" : "default" }} onClick={onClick}>{title} {onClick && "→"}</div><div style={styles.statRowSmall}>{children}</div></div>;
+}
+
+function downloadTemplate(columns, filename) {
+  const ws = XLSX.utils.aoa_to_sheet([columns]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Template");
+  XLSX.writeFile(wb, filename);
+}
+
+// Exports the CURRENT data of a tab to Excel — columns is [{header, get: (row) => value}]
+function exportToExcel(rows, columns, filename) {
+  const data = rows.map((r) => {
+    const obj = {};
+    columns.forEach((c) => { obj[c.header] = c.get(r); });
+    return obj;
+  });
+  const ws = XLSX.utils.json_to_sheet(data.length > 0 ? data : [Object.fromEntries(columns.map((c) => [c.header, ""]))]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Data");
+  XLSX.writeFile(wb, filename);
+}
+
+function ExcelUploadRow({ fileInputRef, onExcel, importMsg, hint, templateColumns, templateName, exportRows, exportColumns, exportName }) {
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+        {exportColumns && <button style={{ ...styles.uploadBtn, background: "#2E6F6E" }} onClick={() => exportToExcel(exportRows || [], exportColumns, exportName || "export.xlsx")}>⬆ Export to Excel ({(exportRows || []).length})</button>}
+        {templateColumns && <button style={{ ...styles.uploadBtn, background: "#6B7280" }} onClick={() => downloadTemplate(templateColumns, templateName || "template.xlsx")}>⬇ Download Template</button>}
+        <input type="file" accept=".xlsx,.xls,.csv" ref={fileInputRef} style={{ display: "none" }} onChange={onExcel} />
+        <button style={styles.uploadBtn} onClick={() => fileInputRef.current.click()}><Upload size={14} /> Upload Excel</button>
+      </div>
+      {importMsg && <div style={styles.importMsg}>{importMsg}</div>}
+      <div style={{ fontSize: 11, color: "#9AA5B8", marginBottom: 14 }}>{hint}</div>
+    </div>
+  );
+}
+
+function SearchTmTab({ brandBank, newBankName, setNewBankName, addBankName, removeBankName, enlistedNames, combinedBankNames,
+  tmChecklist, newCandidate, setNewCandidate, addCandidate, updateCandidate, removeCandidate, candidateOverallStatus,
+  bankFileRef, onBankExcel, bankImportMsg, checklistFileRef, onChecklistExcel, checklistImportMsg }) {
+  const [checklistFilter, setChecklistFilter] = useState("all");
+  const [quickCheck, setQuickCheck] = useState("");
+  const quickBest = bestMatchInBank(quickCheck, combinedBankNames);
+  const filteredChecklist = tmChecklist.filter((c) => checklistFilter === "all" || candidateOverallStatus(c) === checklistFilter);
+
+  return (
+    <div>
+      <TabHeader eyebrow="SEARCH BEFORE TM FILING" title="Clear a Name Before You File" action={
+        <GenerateReportButton onClick={() => openReportWindow("Search Before TM Filing", `
+          ${section("Summary", [["Names Checked", tmChecklist.length]])}
+          ${dataTable("Candidate Names Checklist", tmChecklist, [
+            { header: "Name", get: (r) => r.name }, { header: "Date Added", get: (r) => r.dateAdded }, { header: "WIPO", get: (r) => r.wipo },
+            { header: "Pharmabridge", get: (r) => r.pharmabridge }, { header: "DRAP Portal", get: (r) => r.drapPortal },
+            { header: "Lawyer TM-55", get: (r) => r.lawyerTM55 }, { header: "Notes", get: (r) => r.notes },
+          ])}
+          ${dataTable("Brand Name Bank", brandBank, [{ header: "Name", get: (r) => r.name }])}
+        `)} />
+      } />
+
+      <section style={styles.card}>
+        <div style={styles.cardTitle}><SearchIcon size={16} /> Quick Instant Check</div>
+        <div style={styles.cardSub}>Type a name — see its similarity instantly, no need to save it anywhere.</div>
+        <input style={{ ...styles.input, width: "100%" }} placeholder="Type a candidate name..." value={quickCheck} onChange={(e) => setQuickCheck(e.target.value)} />
+        {quickCheck.trim() && (
+          <div style={{ marginTop: 12 }}>
+            <div style={styles.gaugeTrack}><div style={{ ...styles.gaugeFill, width: `${quickBest.score}%`, background: quickBest.score >= 70 ? "#B54834" : quickBest.score >= 40 ? "#D9A441" : "#2E6F6E" }} /></div>
+            <div style={{ fontSize: 13, color: "#3A3F4B", marginTop: 8 }}>
+              <b>{quickBest.score}%</b> {quickBest.match ? <>similar to <b>{quickBest.match}</b></> : "— bank is empty, add names below"}
+              {quickBest.score >= 70 && <span style={{ color: "#B54834", fontWeight: 600 }}> — high risk</span>}
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section style={styles.card}>
+        <div style={styles.cardTitle}><Bank size={16} /> Brand Name Bank</div>
+        <div style={styles.cardSub}>The reference list every candidate name gets checked against.</div>
+        <ExcelUploadRow fileInputRef={bankFileRef} onExcel={onBankExcel} importMsg={bankImportMsg} hint="Expected column: Name."
+          exportRows={brandBank} exportColumns={[{ header: "Name", get: (r) => r.name }]} exportName="brand-name-bank.xlsx" />
+        <div style={styles.inputRow}>
+          <input style={{ ...styles.input, flex: 2 }} placeholder="Add a brand/mark name to the bank" value={newBankName} onChange={(e) => setNewBankName(e.target.value)} />
+          <button style={styles.addBtn} onClick={addBankName}><Plus size={16} /> Add</button>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {enlistedNames.map((n) => <span key={n} style={{ ...styles.metaTag, background: "#EAF3F2", color: "#2E6F6E" }}>{n} (auto — DRAP enlisted)</span>)}
+          {brandBank.map((b) => (
+            <span key={b.id} style={{ ...styles.metaTag, display: "inline-flex", alignItems: "center", gap: 4 }}>
+              {b.name}<button style={{ border: "none", background: "none", cursor: "pointer", color: "#B54834", padding: 0 }} onClick={() => removeBankName(b.id)}>✕</button>
+            </span>
+          ))}
+          {combinedBankNames.length === 0 && <EmptyState text="Bank is empty — add names above." />}
+        </div>
+      </section>
+
+      <section style={styles.card}>
+        <div style={styles.cardTitle}>Candidate Names Checklist</div>
+        <div style={styles.cardSub}>Check each candidate name against WIPO, Pharmabridge, DRAP Portal and your lawyer (TM-55) before filing.</div>
+        <ExcelUploadRow fileInputRef={checklistFileRef} onExcel={onChecklistExcel} importMsg={checklistImportMsg} hint="Expected columns: Name, Notes."
+          exportRows={tmChecklist} exportColumns={[
+            { header: "Name", get: (r) => r.name }, { header: "Date Added", get: (r) => r.dateAdded },
+            { header: "WIPO", get: (r) => r.wipo }, { header: "Pharmabridge", get: (r) => r.pharmabridge },
+            { header: "DRAP Portal", get: (r) => r.drapPortal }, { header: "Lawyer TM-55", get: (r) => r.lawyerTM55 },
+            { header: "Notes", get: (r) => r.notes },
+          ]} exportName="search-checklist.xlsx" />
+        <div style={styles.inputRow}>
+          <input style={{ ...styles.input, flex: 2 }} placeholder="Candidate mark name" value={newCandidate} onChange={(e) => setNewCandidate(e.target.value)} />
+          <button style={styles.addBtn} onClick={addCandidate}><Plus size={16} /> Add</button>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          {["all", "Available for Filing", "Not Available", "Checking in Progress"].map((f) => <FilterPill key={f} active={checklistFilter === f} onClick={() => setChecklistFilter(f)} label={f === "all" ? "All" : f} />)}
+        </div>
+
+        {filteredChecklist.length === 0 ? <EmptyState text="No candidate names yet." /> : filteredChecklist.map((c) => {
+          const best = bestMatchInBank(c.name, combinedBankNames);
+          const status = candidateOverallStatus(c);
+          const statusColor = status === "Available for Filing" ? "#2E6F6E" : status === "Not Available" ? "#B54834" : "#B9821F";
+          const statusBg = status === "Available for Filing" ? "#EAF3F2" : status === "Not Available" ? "#F7E5E1" : "#FBF1DC";
+          return (
+            <div key={c.id} style={styles.candidateCard}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name}</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ background: statusBg, color: statusColor, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>{status}</span>
+                  <button style={styles.iconBtnDanger} onClick={() => removeCandidate(c.id)}><Trash2 size={13} /></button>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: best.score >= 70 ? "#B54834" : "#6B7280", marginTop: 4 }}>
+                AI Similarity: <b>{best.score}%</b>{best.match ? ` similar to "${best.match}"` : " (bank empty)"}
+              </div>
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 10 }}>
+                <YesNoField label="WIPO" value={c.wipo} onChange={(v) => updateCandidate(c.id, "wipo", v)} link={`https://branddb.wipo.int/en/similarname/results?name=${encodeURIComponent(c.name)}`} />
+                <YesNoField label="Pharmabridge" value={c.pharmabridge} onChange={(v) => updateCandidate(c.id, "pharmabridge", v)} link={`https://www.google.com/search?q=${encodeURIComponent(c.name + " site:pharmabridge.com.pk")}`} />
+                <YesNoField label="DRAP Portal" value={c.drapPortal} onChange={(v) => updateCandidate(c.id, "drapPortal", v)} link={`https://www.dra.gov.pk/?s=${encodeURIComponent(c.name)}`} />
+                <YesNoField label="Lawyer (TM-55)" value={c.lawyerTM55} onChange={(v) => updateCandidate(c.id, "lawyerTM55", v)} />
+              </div>
+              <input style={{ ...styles.miniInput, width: "100%", marginTop: 10 }} placeholder="Notes..." value={c.notes} onChange={(e) => updateCandidate(c.id, "notes", e.target.value)} />
+            </div>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+function YesNoField({ label, value, onChange, link }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", marginBottom: 4 }}>{label} available</div>
+      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+        <FilterPill active={value === "Yes"} onClick={() => onChange("Yes")} label="Yes" />
+        <FilterPill active={value === "No"} onClick={() => onChange("No")} label="No" />
+        {link && <a href={link} target="_blank" rel="noreferrer" style={styles.searchLink}>Search →</a>}
+      </div>
+    </div>
+  );
+}
+
+function LabeledMiniInput({ label, value, onChange, type = "text" }) {
+  return <div><div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>{label}</div><input style={styles.miniInput} type={type} value={value} onChange={(e) => onChange(e.target.value)} /></div>;
+}
+
+function statusDateField(status) {
+  if (status === "Applied") return { field: "appliedDate", label: "Applied Date" };
+  if (status === "Advertised") return { field: "advertisedDate", label: "Advertised Date" };
+  if (status === "Certified") return { field: "certifiedDate", label: "Certified Date" };
+  return null;
+}
+
+function TrademarkTab({ trademarks, allCount, tmFilter, setTmFilter, newTm, setNewTm, addTrademark, updateTm, removeTm, fileInputRef, onExcel, importMsg, focusId }) {
+  const newDateField = statusDateField(newTm.status);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const visible = trademarks.filter((p) => (statusFilter === "all" || p.status === statusFilter) && (!search.trim() || p.name.toLowerCase().includes(search.toLowerCase())));
+  return (
+    <div>
+      <TabHeader eyebrow="TRADEMARK PORTFOLIO" title="Your Trademarks" action={
+        <GenerateReportButton onClick={() => openReportWindow("TM Portfolio Report", dataTable("Trademark Portfolio", trademarks, [
+          { header: "Name", get: (r) => r.name }, { header: "Class", get: (r) => r.cls }, { header: "Status", get: (r) => r.status },
+          { header: "Applied Date", get: (r) => r.appliedDate }, { header: "DRAP Enlisted", get: (r) => r.drapEnlisted ? "Yes" : "No" },
+          { header: "Reg No.", get: (r) => r.enlistmentRegNo }, { header: "Assigned Product", get: (r) => r.assignedProduct },
+          { header: "Marketed", get: (r) => r.marketed }, { header: "Sale %", get: (r) => r.salePercentage },
+        ]))} />
+      } />
+      <section style={styles.card}>
+        <div style={styles.cardTitle}>Trademark Portfolio</div>
+        <div style={styles.cardSub}>Add your own marks, or upload an Excel/CSV sheet.</div>
+        <ExcelUploadRow fileInputRef={fileInputRef} onExcel={onExcel} importMsg={importMsg}
+          hint="Columns: Name, Class, Status, Applied Date, Advertised Date, Certified Date, DRAP Enlisted/Registered, Enlistment Number, Enlistment Date, Assigned Product, TM Application Number, Renewal Date, Marketed, Marketed Date, Sale Percentage."
+          templateColumns={["Name", "Class", "Status", "Applied Date", "Advertised Date", "Certified Date", "DRAP Enlisted/Registered", "Enlistment Number", "Enlistment Date", "Assigned Product", "TM Application Number", "Renewal Date", "Marketed", "Marketed Date", "Sale Percentage"]}
+          templateName="tm-portfolio-template.xlsx"
+          exportRows={trademarks} exportColumns={[
+            { header: "Name", get: (r) => r.name }, { header: "Class", get: (r) => r.cls }, { header: "Status", get: (r) => r.status },
+            { header: "Applied Date", get: (r) => r.appliedDate }, { header: "Advertised Date", get: (r) => r.advertisedDate }, { header: "Certified Date", get: (r) => r.certifiedDate },
+            { header: "DRAP Enlisted/Registered", get: (r) => r.drapEnlisted ? "Yes" : "No" }, { header: "Enlistment Number", get: (r) => r.enlistmentRegNo }, { header: "Enlistment Date", get: (r) => r.enlistmentRegDate },
+            { header: "Assigned Product", get: (r) => r.assignedProduct }, { header: "TM Application Number", get: (r) => r.tmApplicationNo }, { header: "Renewal Date", get: (r) => r.renewalDate },
+            { header: "Marketed", get: (r) => r.marketed }, { header: "Marketed Date", get: (r) => r.marketedDate }, { header: "Sale Percentage", get: (r) => r.salePercentage },
+          ]} exportName="tm-portfolio.xlsx" />
+        <div style={styles.inputRow}>
+          <input style={{ ...styles.input, flex: 2 }} placeholder="Trademark name" value={newTm.name} onChange={(e) => setNewTm({ ...newTm, name: e.target.value })} />
+          <select style={styles.select} value={newTm.cls} onChange={(e) => setNewTm({ ...newTm, cls: e.target.value })}>{TM_CLASSES.map((c) => <option key={c}>{c}</option>)}</select>
+          <select style={styles.select} value={newTm.status} onChange={(e) => setNewTm({ ...newTm, status: e.target.value })}>{TM_STATUSES.map((s) => <option key={s}>{s}</option>)}</select>
+          {newDateField && <input style={styles.input} type="date" placeholder={newDateField.label} value={newTm[newDateField.field]} onChange={(e) => setNewTm({ ...newTm, [newDateField.field]: e.target.value })} />}
+        </div>
+        <div style={styles.inputRow}>
+          <input style={styles.input} placeholder="Assigned product" value={newTm.assignedProduct} onChange={(e) => setNewTm({ ...newTm, assignedProduct: e.target.value })} />
+          <input style={styles.input} placeholder="TM Application No." value={newTm.tmApplicationNo} onChange={(e) => setNewTm({ ...newTm, tmApplicationNo: e.target.value })} />
+          <input style={styles.input} type="date" placeholder="Renewal date" value={newTm.renewalDate} onChange={(e) => setNewTm({ ...newTm, renewalDate: e.target.value })} />
+        </div>
+        <div style={styles.inputRow}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, whiteSpace: "nowrap" }}>
+            <input type="checkbox" checked={newTm.drapEnlisted} onChange={(e) => setNewTm({ ...newTm, drapEnlisted: e.target.checked })} /> DRAP Enlisted/Registered
+          </label>
+          {newTm.drapEnlisted && <input style={styles.input} placeholder="Enlistment/Registration No." value={newTm.enlistmentRegNo} onChange={(e) => setNewTm({ ...newTm, enlistmentRegNo: e.target.value })} />}
+          {newTm.drapEnlisted && <input style={styles.input} type="date" placeholder="Enlistment/Registration Date" value={newTm.enlistmentRegDate} onChange={(e) => setNewTm({ ...newTm, enlistmentRegDate: e.target.value })} />}
+        </div>
+        <div style={styles.inputRow}>
+          <select style={styles.select} value={newTm.marketed} onChange={(e) => setNewTm({ ...newTm, marketed: e.target.value })}><option value="">Marketed?</option>{MARKETED_OPTIONS.map((m) => <option key={m}>{m}</option>)}</select>
+          {newTm.marketed === "Yes" && <input style={styles.input} placeholder="Sale Percentage" value={newTm.salePercentage} onChange={(e) => setNewTm({ ...newTm, salePercentage: e.target.value })} />}
+          {newTm.marketed === "Yes" && <input style={styles.input} type="date" placeholder="Marketed Date" value={newTm.marketedDate} onChange={(e) => setNewTm({ ...newTm, marketedDate: e.target.value })} />}
+          <button style={styles.addBtn} onClick={addTrademark}><Plus size={16} /> Add</button>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <input style={{ ...styles.input, width: "100%" }} placeholder="🔍 Search trademark by name..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+          <FilterPill active={tmFilter === "all"} onClick={() => setTmFilter("all")} label={`All (${allCount})`} />
+          <FilterPill active={tmFilter === "drap"} onClick={() => setTmFilter("drap")} label="DRAP Enlisted/Registered" />
+          <FilterPill active={tmFilter === "notdrap"} onClick={() => setTmFilter("notdrap")} label="Not Registered/Enlisted" />
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <FilterPill active={statusFilter === "all"} onClick={() => setStatusFilter("all")} label="All Statuses" />
+          {TM_STATUSES.map((s) => <FilterPill key={s} active={statusFilter === s} onClick={() => setStatusFilter(s)} label={s} />)}
+        </div>
+        {visible.length === 0 ? <EmptyState text="No trademarks match this filter yet." /> : visible.map((p) => {
+          const dateField = statusDateField(p.status);
+          return (
+          <ExpandableRow key={p.id} defaultOpen={p.id === focusId} summary={
+            <>
+              <span style={{ fontWeight: 700, flex: 1.5 }}>{p.name}</span>
+              <span style={styles.rowMeta}>{p.cls}</span>
+              <span style={styles.rowMeta}>{p.status}</span>
+              {dateField && p[dateField.field] && <span style={styles.rowMeta}>{dateField.label}: {p[dateField.field]}</span>}
+              {p.drapEnlisted && <span style={{ ...styles.metaTag, background: "#EAF3F2", color: "#2E6F6E" }}>DRAP: {p.enlistmentRegNo || "—"}{p.enlistmentRegDate ? ` (${p.enlistmentRegDate})` : ""}</span>}
+              <span style={{ ...styles.metaTag, background: p.marketed === "Yes" ? "#EAF3F2" : "#F7F5F0", color: p.marketed === "Yes" ? "#2E6F6E" : "#9AA5B8" }}>Marketed: {p.marketed || "—"}{p.marketed === "Yes" && p.marketedDate ? ` (${p.marketedDate})` : ""}</span>
+              <span style={styles.rowMeta}>{p.assignedProduct || "—"}</span>
+            </>
+          }>
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button style={styles.iconBtnDanger} onClick={() => removeTm(p.id)}><Trash2 size={13} /></button>
+          </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
+              <select style={styles.statusSelect} value={p.status} onChange={(e) => updateTm(p.id, "status", e.target.value)}>{TM_STATUSES.map((s) => <option key={s}>{s}</option>)}</select>
+              {dateField && <LabeledMiniInput label={dateField.label} type="date" value={p[dateField.field]} onChange={(v) => updateTm(p.id, dateField.field, v)} />}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}><input type="checkbox" checked={p.drapEnlisted} onChange={(e) => updateTm(p.id, "drapEnlisted", e.target.checked)} /> DRAP Enlisted/Registered</label>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
+              <LabeledMiniInput label="Assigned Product" value={p.assignedProduct} onChange={(v) => updateTm(p.id, "assignedProduct", v)} />
+              <LabeledMiniInput label="TM Application No." value={p.tmApplicationNo} onChange={(v) => updateTm(p.id, "tmApplicationNo", v)} />
+              <LabeledMiniInput label="Renewal Date" type="date" value={p.renewalDate} onChange={(v) => updateTm(p.id, "renewalDate", v)} />
+              {p.drapEnlisted && <LabeledMiniInput label="Enlistment/Registration No." value={p.enlistmentRegNo} onChange={(v) => updateTm(p.id, "enlistmentRegNo", v)} />}
+              {p.drapEnlisted && <LabeledMiniInput label="Enlistment/Registration Date" type="date" value={p.enlistmentRegDate} onChange={(v) => updateTm(p.id, "enlistmentRegDate", v)} />}
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <div><div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>Marketed / Non-Marketed</div>
+                <select style={styles.statusSelect} value={p.marketed} onChange={(e) => updateTm(p.id, "marketed", e.target.value)}><option value="">—</option>{MARKETED_OPTIONS.map((m) => <option key={m}>{m}</option>)}</select>
+              </div>
+              {p.marketed === "Yes" && <LabeledMiniInput label="Sale Percentage" value={p.salePercentage} onChange={(v) => updateTm(p.id, "salePercentage", v)} />}
+              {p.marketed === "Yes" && <LabeledMiniInput label="Marketed Date" type="date" value={p.marketedDate} onChange={(v) => updateTm(p.id, "marketedDate", v)} />}
+            </div>
+          </ExpandableRow>
+        );})}
+      </section>
+    </div>
+  );
+}
+
+// ---------- Reusable Opposition Record Card (used by TM by/against RGP and Copyright by/against RGP) ----------
+const RGP_STATUS_OPTIONS = ["Applied", "Advertised", "Certified", "DRAP Enlisted/Registered"];
+
+function rgpSourceList(items, mode) {
+  // items = trademarks or copyrights; returns [{value: statusOption, list: filteredNames}]
+  return items;
+}
+
+function OppRecordCard({ row, crud, mode, statusOptions, showNiceClass, sourceItems }) {
+  const idLabel = mode === "tm" ? "TM No." : "Copyright No.";
+  const nameLabel = mode === "tm" ? "Brand Name of RGP" : "Copyright Name of RGP";
+  const otherNameLabel = mode === "tm" ? "Brand Name of Other Company" : "Copyright Name of Other Company";
+
+  const rgpFilteredOptions = useMemo(() => {
+    if (!row.rgpStatus) return [];
+    if (row.rgpStatus === "DRAP Enlisted/Registered") return sourceItems.filter((s) => s.drapEnlisted);
+    return sourceItems.filter((s) => s.status === row.rgpStatus);
+  }, [row.rgpStatus, sourceItems]);
+
+  const applyRgpBrand = (brandName) => {
+    const item = sourceItems.find((s) => s.name === brandName);
+    let idNo = "", date = "";
+    if (item) {
+      if (row.rgpStatus === "Applied") { idNo = mode === "tm" ? item.tmApplicationNo : ""; date = item.appliedDate; }
+      else if (row.rgpStatus === "Advertised") { idNo = mode === "tm" ? item.tmApplicationNo : ""; date = item.advertisedDate; }
+      else if (row.rgpStatus === "Certified") { idNo = mode === "tm" ? item.tmApplicationNo : ""; date = item.certifiedDate; }
+      else if (row.rgpStatus === "DRAP Enlisted/Registered") { idNo = item.enlistmentRegNo || item.regNo; date = mode === "tm" ? item.enlistmentRegDate : item.regDate; }
+    }
+    crud.update(row.id, "rgpBrandName", brandName);
+    crud.update(row.id, "rgpIdNo", idNo);
+    crud.update(row.id, "rgpDate", date);
+  };
+
+  const rgpDateLabel = row.rgpStatus === "DRAP Enlisted/Registered" ? "Enlistment/Registration Date" : row.rgpStatus ? `${row.rgpStatus} Date` : "Date";
+
+  return (
+    <div style={styles.decisionCard}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>{row.rgpBrandName || row.otherBrandName || "(new record)"}</div>
+        <button style={styles.iconBtnDanger} onClick={() => crud.remove(row.id)}><Trash2 size={13} /></button>
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#2E6F6E", marginTop: 12, marginBottom: 4 }}>RGP Product</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+        <div><div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>RGP Product Status</div>
+          <select style={styles.statusSelect} value={row.rgpStatus} onChange={(e) => { crud.update(row.id, "rgpStatus", e.target.value); crud.update(row.id, "rgpBrandName", ""); crud.update(row.id, "rgpIdNo", ""); crud.update(row.id, "rgpDate", ""); }}>
+            <option value="">—</option>{RGP_STATUS_OPTIONS.map((s) => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+        <div><div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>{nameLabel}</div>
+          <select style={styles.statusSelect} value={row.rgpBrandName} onChange={(e) => applyRgpBrand(e.target.value)} disabled={!row.rgpStatus}>
+            <option value="">—</option>{rgpFilteredOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+          </select>
+        </div>
+        {row.rgpStatus && <LabeledMiniInput label={idLabel} value={row.rgpIdNo} onChange={(v) => crud.update(row.id, "rgpIdNo", v)} />}
+        {row.rgpStatus && <LabeledMiniInput label={rgpDateLabel} type="date" value={row.rgpDate} onChange={(v) => crud.update(row.id, "rgpDate", v)} />}
+        <div><div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>RGP Product Marketed</div>
+          <select style={styles.statusSelect} value={row.rgpMarketed} onChange={(e) => crud.update(row.id, "rgpMarketed", e.target.value)}><option value="">—</option>{MARKETED_OPTIONS.map((m) => <option key={m}>{m}</option>)}</select>
+        </div>
+        {row.rgpMarketed === "Yes" && <LabeledMiniInput label="Sale Percentage" value={row.rgpSalePercentage} onChange={(v) => crud.update(row.id, "rgpSalePercentage", v)} />}
+        {row.rgpMarketed === "Yes" && <LabeledMiniInput label="Marketed Date" type="date" value={row.rgpMarketedDate} onChange={(v) => crud.update(row.id, "rgpMarketedDate", v)} />}
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#B54834", marginTop: 16, marginBottom: 4 }}>Other Company Product</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+        <div><div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>Other Company Status</div>
+          <select style={styles.statusSelect} value={row.otherStatus} onChange={(e) => crud.update(row.id, "otherStatus", e.target.value)}><option value="">—</option>{RGP_STATUS_OPTIONS.map((s) => <option key={s}>{s}</option>)}</select>
+        </div>
+        <LabeledMiniInput label={otherNameLabel} value={row.otherBrandName} onChange={(v) => crud.update(row.id, "otherBrandName", v)} />
+        {row.otherStatus === "DRAP Enlisted/Registered" && <LabeledMiniInput label="Enlistment/Registration No." value={row.otherIdNo} onChange={(v) => crud.update(row.id, "otherIdNo", v)} />}
+        {row.otherStatus && <LabeledMiniInput label={row.otherStatus === "DRAP Enlisted/Registered" ? "Enlistment/Registration Date" : `${row.otherStatus} Date`} type="date" value={row.otherDate} onChange={(v) => crud.update(row.id, "otherDate", v)} />}
+        <div><div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>Other Company Marketed</div>
+          <select style={styles.statusSelect} value={row.otherMarketed} onChange={(e) => crud.update(row.id, "otherMarketed", e.target.value)}><option value="">—</option>{MARKETED_OPTIONS.map((m) => <option key={m}>{m}</option>)}</select>
+        </div>
+        {row.otherMarketed === "Yes" && <LabeledMiniInput label="Sale % of RGP's Total Sale" value={row.otherSalePercentage} onChange={(v) => crud.update(row.id, "otherSalePercentage", v)} />}
+        {row.otherMarketed === "Yes" && <LabeledMiniInput label="Marketed Date" type="date" value={row.otherMarketedDate} onChange={(v) => crud.update(row.id, "otherMarketedDate", v)} />}
+      </div>
+      {row.otherMarketed === "Yes" && row.otherSalePercentage && (
+        <div style={{ fontSize: 11, color: "#B9821F", marginTop: 8, background: "#FBF1DC", padding: "6px 10px", borderRadius: 6 }}>{saleSuggestion(row.otherSalePercentage)}</div>
+      )}
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#3A3F4B", marginTop: 16, marginBottom: 4 }}>Case Details</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+        {showNiceClass && (
+          <div><div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>NICE Class</div>
+            <select style={styles.statusSelect} value={row.niceClass} onChange={(e) => crud.update(row.id, "niceClass", e.target.value)}>{TM_CLASSES.map((c) => <option key={c}>{c}</option>)}</select>
+          </div>
+        )}
+        <LabeledMiniInput label="Filed Date" type="date" value={row.filedDate} onChange={(v) => crud.update(row.id, "filedDate", v)} />
+        {mode === "copyright" && <LabeledMiniInput label="Work Design" value={row.workDesign} onChange={(v) => crud.update(row.id, "workDesign", v)} />}
+        <LabeledMiniInput label="Company Name" value={row.companyName} onChange={(v) => crud.update(row.id, "companyName", v)} />
+        <LabeledMiniInput label="Company Address" value={row.companyAddress} onChange={(v) => crud.update(row.id, "companyAddress", v)} />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 4 }}>Status</div>
+        <select style={{ ...styles.select, width: "100%" }} value={row.status} onChange={(e) => crud.update(row.id, "status", e.target.value)}>
+          <option value="">—</option>{statusOptions.map((s) => <option key={s}>{s}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+function OppTableSection({ title, hint, rows, crud, fileRef, onExcel, importMsg, statusOptions, mode, showNiceClass, sourceItems }) {
+  const [statusFilter, setStatusFilter] = useState("all");
+  const filtered = rows.filter((r) => statusFilter === "all" || r.status === statusFilter);
+  const idLabel = mode === "tm" ? "TM No." : "Copyright No.";
+  const oppExportColumns = [
+    { header: "RGP Product Status", get: (r) => r.rgpStatus }, { header: mode === "tm" ? "Brand Name of RGP" : "Copyright Name of RGP", get: (r) => r.rgpBrandName },
+    { header: idLabel, get: (r) => r.rgpIdNo }, { header: "RGP Date", get: (r) => r.rgpDate },
+    { header: "RGP Marketed", get: (r) => r.rgpMarketed }, { header: "RGP Sale Percentage", get: (r) => r.rgpSalePercentage }, { header: "RGP Marketed Date", get: (r) => r.rgpMarketedDate },
+    { header: "Other Company Status", get: (r) => r.otherStatus }, { header: mode === "tm" ? "Brand Name of Other Company" : "Copyright Name of Other Company", get: (r) => r.otherBrandName },
+    { header: "Other Company Number", get: (r) => r.otherIdNo }, { header: "Other Company Date", get: (r) => r.otherDate },
+    { header: "Other Company Marketed", get: (r) => r.otherMarketed }, { header: "Other Company Sale % of RGP Total", get: (r) => r.otherSalePercentage }, { header: "Other Company Marketed Date", get: (r) => r.otherMarketedDate },
+    ...(showNiceClass ? [{ header: "NICE Class", get: (r) => r.niceClass }] : []),
+    { header: "Filed Date", get: (r) => r.filedDate },
+    ...(mode === "copyright" ? [{ header: "Work Design", get: (r) => r.workDesign }] : []),
+    { header: "Company Name", get: (r) => r.companyName }, { header: "Company Address", get: (r) => r.companyAddress },
+    { header: "Status", get: (r) => r.status },
+  ];
+  return (
+    <section style={styles.card}>
+      <div style={styles.cardTitle}>{title}</div>
+      <ExcelUploadRow fileInputRef={fileRef} onExcel={onExcel} importMsg={importMsg} hint={hint}
+        exportRows={rows} exportColumns={oppExportColumns} exportName={title.toLowerCase().replace(/\s+/g, "-") + ".xlsx"} />
+      <div style={{ marginBottom: 14 }}>
+        <button style={styles.addBtn} onClick={() => crud.add(crud.blank)}><Plus size={16} /> Add New Record</button>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+        <FilterPill active={statusFilter === "all"} onClick={() => setStatusFilter("all")} label="All" />
+        {statusOptions.map((s) => <FilterPill key={s} active={statusFilter === s} onClick={() => setStatusFilter(s)} label={s} />)}
+      </div>
+      {filtered.length === 0 ? <EmptyState text="No records yet — click 'Add New Record' above." /> : filtered.map((r) => (
+        <OppRecordCard key={r.id} row={r} crud={crud} mode={mode} statusOptions={statusOptions} showNiceClass={showNiceClass} sourceItems={sourceItems} />
+      ))}
+    </section>
+  );
+}
+
+function TmOppositionTab({ oppByRgp, oppByRgpCrud, oppByRgpFileRef, onOppByRgpExcel, oppByRgpImportMsg,
+  oppAgainstRgp, oppAgainstRgpCrud, oppAgainstRgpFileRef, onOppAgainstRgpExcel, oppAgainstRgpImportMsg,
+  decisionToOpposeTm, decisionTmCrud, trademarks }) {
+  const [subTab, setSubTab] = useState("by");
+  const [caseFilter, setCaseFilter] = useState("all");
+  const filteredDecisions = decisionToOpposeTm.filter((d) => caseFilter === "all" || d.caseStatus === caseFilter);
+
+  return (
+    <div>
+      <TabHeader eyebrow="TM OPPOSITION" title="Trademark Opposition" action={
+        <GenerateReportButton onClick={() => openReportWindow("TM Opposition Report", `
+          ${dataTable("TM Opposition — By RGP", oppByRgp, [
+            { header: "Complaint By", get: (r) => r.companyName }, { header: "RGP Brand", get: (r) => r.rgpBrandName }, { header: "RGP TM No.", get: (r) => r.rgpIdNo },
+            { header: "Other Company", get: (r) => r.otherBrandName }, { header: "Nice Class", get: (r) => r.niceClass }, { header: "Filed Date", get: (r) => r.filedDate }, { header: "Status", get: (r) => r.status },
+          ])}
+          ${dataTable("TM Opposition — Against RGP", oppAgainstRgp, [
+            { header: "Company", get: (r) => r.companyName }, { header: "RGP Brand", get: (r) => r.rgpBrandName }, { header: "RGP TM No.", get: (r) => r.rgpIdNo },
+            { header: "Other Brand", get: (r) => r.otherBrandName }, { header: "Nice Class", get: (r) => r.niceClass }, { header: "Filed Date", get: (r) => r.filedDate }, { header: "Status", get: (r) => r.status },
+          ])}
+          ${dataTable("Decision to Oppose — TM", decisionToOpposeTm, [
+            { header: "Complaint #", get: (r) => r.complaintNo }, { header: "Company", get: (r) => r.companyName }, { header: "Nature", get: (r) => r.nature },
+            { header: "Marketed", get: (r) => r.marketed }, { header: "Sale %", get: (r) => r.salePercentage }, { header: "Decision", get: (r) => (r.decision || []).join(", ") },
+            { header: "Case Status", get: (r) => r.caseStatus }, { header: "Action Taken", get: (r) => r.actionTaken },
+          ])}
+        `)} />
+      } />
+      <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+        <FilterPill active={subTab === "by"} onClick={() => setSubTab("by")} label="Opposition by RGP" />
+        <FilterPill active={subTab === "against"} onClick={() => setSubTab("against")} label="Opposition Against RGP" />
+        <FilterPill active={subTab === "decision"} onClick={() => setSubTab("decision")} label="Decision to Oppose TM" />
+      </div>
+
+      {subTab === "by" && (
+        <OppTableSection title="Opposition by RGP" hint="Records auto-added when a Decision to Oppose TM case is marked 'Filed in IPO (Opposition)' — or add/upload known cases manually here."
+          rows={oppByRgp} crud={oppByRgpCrud} fileRef={oppByRgpFileRef} onExcel={onOppByRgpExcel} importMsg={oppByRgpImportMsg}
+          statusOptions={TM_OPP_STATUS_BY_RGP} mode="tm" showNiceClass={true} sourceItems={trademarks} />
+      )}
+      {subTab === "against" && (
+        <OppTableSection title="Opposition Against RGP" hint="Add or upload cases where another company opposed one of our marks."
+          rows={oppAgainstRgp} crud={oppAgainstRgpCrud} fileRef={oppAgainstRgpFileRef} onExcel={onOppAgainstRgpExcel} importMsg={oppAgainstRgpImportMsg}
+          statusOptions={TM_OPP_STATUS_AGAINST_RGP} mode="tm" showNiceClass={true} sourceItems={trademarks} />
+      )}
+      {subTab === "decision" && (
+        <section style={styles.card}>
+          <div style={styles.cardTitle}>Decision to Oppose TM</div>
+          <div style={styles.cardSub}>Auto-populated from Complaint Log entries marked "Trademark". Selecting "Filed in IPO (Opposition)" auto-adds this case to Opposition by RGP.</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+            <FilterPill active={caseFilter === "all"} onClick={() => setCaseFilter("all")} label="All" />
+            {CASE_STATUS_OPTIONS.map((s) => <FilterPill key={s} active={caseFilter === s} onClick={() => setCaseFilter(s)} label={s} />)}
+          </div>
+          {filteredDecisions.length === 0 ? <EmptyState text="No trademark complaints escalated here yet." /> : filteredDecisions.map((d) => (
+            <DecisionCard key={d.id} row={d} onUpdate={decisionTmCrud.update} onToggleTag={decisionTmCrud.toggleTag} onRemove={decisionTmCrud.remove} companyLabel="Company Name" />
+          ))}
+          <div style={styles.criteriaBox}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Opposition Criteria</div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.8, color: "#5C4517" }}>
+              <li>Major/known brand opposed us → <b>Full Oppose</b> (DRAP + IPO)</li>
+              <li>Major/known brand copied our mark → <b>Full Oppose</b></li>
+              <li>Small/unknown company — check sale percentage:
+                <ul style={{ marginTop: 4 }}>
+                  <li>&lt; 2% → Monitor + File DRAP QA + Lawyer Notice</li>
+                  <li>2%–5% → Lawyer Notice + File DRAP QA, watch closely</li>
+                  <li>&gt; 5% → Full Oppose (Lawyer + DRAP Registration &amp; HOTC Division)</li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function DecisionCard({ row, onUpdate, onToggleTag, onRemove, companyLabel }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div style={styles.decisionCard}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, cursor: "pointer" }} onClick={() => setExpanded((v) => !v)}>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flex: 1, minWidth: 0 }}>
+          <ChevronRight size={11} color="#9AA5B8" style={{ marginTop: 4, transform: expanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", flexShrink: 0 }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{row.complaintNo ? `#${row.complaintNo}` : ""} {row.companyName || "(no company name)"}</div>
+            <div style={{ fontSize: 12.5, color: "#6B7280", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: expanded ? "normal" : "nowrap" }}>{row.nature}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+              {row.decision && row.decision.map((tag) => <span key={tag} style={styles.metaTag}>{tag}</span>)}
+              {row.caseStatus && <span style={{ ...styles.metaTag, background: TERMINAL_CASE_STATUSES.includes(row.caseStatus) ? "#E4F0EF" : "#F7F5F0", color: TERMINAL_CASE_STATUSES.includes(row.caseStatus) ? "#2E6F6E" : "#3A3F4B" }}>{row.caseStatus}</span>}
+            </div>
+          </div>
+        </div>
+        <button style={styles.iconBtnDanger} onClick={(e) => { e.stopPropagation(); onRemove(row.id); }}><Trash2 size={13} /></button>
+      </div>
+      {expanded && (<>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 10 }}>
+        <LabeledMiniInput label="Complaint By" value={row.complaintBy} onChange={(v) => onUpdate(row.id, "complaintBy", v)} />
+        <LabeledMiniInput label={companyLabel} value={row.companyName} onChange={(v) => onUpdate(row.id, "companyName", v)} />
+        <div><div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>DRAP Enlisted/Registered</div>
+          <select style={styles.statusSelect} value={row.drapEnlistedRegistered} onChange={(e) => onUpdate(row.id, "drapEnlistedRegistered", e.target.value)}><option value="">—</option><option>Yes</option><option>No</option></select>
+        </div>
+        <div><div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>Marketed</div>
+          <select style={styles.statusSelect} value={row.marketed} onChange={(e) => onUpdate(row.id, "marketed", e.target.value)}><option value="">—</option>{MARKETED_OPTIONS.map((m) => <option key={m}>{m}</option>)}</select>
+        </div>
+        {row.marketed === "Yes" && <LabeledMiniInput label="Sale Percentage" value={row.salePercentage} onChange={(v) => onUpdate(row.id, "salePercentage", v)} />}
+        <div><div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>Company Size</div>
+          <select style={styles.statusSelect} value={row.companySize} onChange={(e) => onUpdate(row.id, "companySize", e.target.value)}><option value="">—</option>{COMPANY_SIZE_OPTIONS.map((c) => <option key={c}>{c}</option>)}</select>
+        </div>
+      </div>
+      {row.marketed === "Yes" && row.salePercentage && (
+        <div style={{ fontSize: 11, color: "#B9821F", marginTop: 8, background: "#FBF1DC", padding: "6px 10px", borderRadius: 6 }}>{saleSuggestion(row.salePercentage)}</div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 4 }}>Decision (select all that apply)</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{DECISION_OPTIONS.map((opt) => <FilterPill key={opt} active={row.decision.includes(opt)} onClick={() => onToggleTag(row.id, opt)} label={opt} />)}</div>
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>Action Taken</div>
+        <textarea style={{ ...styles.textarea, minHeight: 44 }} placeholder="What action was actually taken after the decision..." value={row.actionTaken} onChange={(e) => onUpdate(row.id, "actionTaken", e.target.value)} />
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 4 }}>Case Status</div>
+        <select style={{ ...styles.select, width: "100%" }} value={row.caseStatus} onChange={(e) => onUpdate(row.id, "caseStatus", e.target.value)}>{CASE_STATUS_OPTIONS.map((s) => <option key={s}>{s}</option>)}</select>
+        {row.caseStatus === "Others" && <input style={{ ...styles.miniInput, width: "100%", marginTop: 6 }} placeholder="Describe the outcome..." value={row.othersDetails} onChange={(e) => onUpdate(row.id, "othersDetails", e.target.value)} />}
+        {TERMINAL_CASE_STATUSES.includes(row.caseStatus) && <div style={{ fontSize: 11, color: "#2E6F6E", marginTop: 6 }}>✓ This case is closed — the linked complaint has been marked Resolved automatically.</div>}
+      </div>
+      </>)}
+    </div>
+  );
+}
+
+function CopyrightTab({ copyrights, newCr, setNewCr, addCopyright, updateCr, removeCr, fileInputRef, onExcel, importMsg }) {
+  const newDateField = statusDateField(newCr.status);
+  return (
+    <div>
+      <TabHeader eyebrow="COPYRIGHT" title="Copyright Register" action={
+        <GenerateReportButton onClick={() => openReportWindow("Copyright Register Report", dataTable("Copyright Register", copyrights, [
+          { header: "Name/Work", get: (r) => r.name }, { header: "Status", get: (r) => r.status }, { header: "Applied Date", get: (r) => r.appliedDate },
+          { header: "Certified Date", get: (r) => r.certifiedDate }, { header: "DRAP Enlisted", get: (r) => r.drapEnlisted ? "Yes" : "No" },
+          { header: "Reg No.", get: (r) => r.regNo }, { header: "Marketed", get: (r) => r.marketed }, { header: "Sale %", get: (r) => r.salePercentage },
+        ]))} />
+      } />
+      <section style={styles.card}>
+        <div style={styles.cardTitle}>Copyrights (labels, artwork, literary works)</div>
+        <ExcelUploadRow fileInputRef={fileInputRef} onExcel={onExcel} importMsg={importMsg}
+          hint="Columns: Name/Work, Status, Applied Date, Advertised Date, Certified Date, DRAP Enlisted/Registered, Registration Number, Registration Date, Marketed, Marketed Date, Sale Percentage."
+          templateColumns={["Name/Work", "Status", "Applied Date", "Advertised Date", "Certified Date", "DRAP Enlisted/Registered", "Registration Number", "Registration Date", "Marketed", "Marketed Date", "Sale Percentage"]}
+          templateName="copyright-template.xlsx"
+          exportRows={copyrights} exportColumns={[
+            { header: "Name/Work", get: (r) => r.name }, { header: "Status", get: (r) => r.status },
+            { header: "Applied Date", get: (r) => r.appliedDate }, { header: "Advertised Date", get: (r) => r.advertisedDate }, { header: "Certified Date", get: (r) => r.certifiedDate },
+            { header: "DRAP Enlisted/Registered", get: (r) => r.drapEnlisted ? "Yes" : "No" }, { header: "Registration Number", get: (r) => r.regNo }, { header: "Registration Date", get: (r) => r.regDate },
+            { header: "Marketed", get: (r) => r.marketed }, { header: "Marketed Date", get: (r) => r.marketedDate }, { header: "Sale Percentage", get: (r) => r.salePercentage },
+          ]} exportName="copyright-register.xlsx" />
+        <div style={styles.inputRow}>
+          <input style={{ ...styles.input, flex: 2 }} placeholder="Work / design name" value={newCr.name} onChange={(e) => setNewCr({ ...newCr, name: e.target.value })} />
+          <select style={styles.select} value={newCr.status} onChange={(e) => setNewCr({ ...newCr, status: e.target.value })}>{CR_STATUSES.map((s) => <option key={s}>{s}</option>)}</select>
+          {newDateField && <input style={styles.input} type="date" placeholder={newDateField.label} value={newCr[newDateField.field]} onChange={(e) => setNewCr({ ...newCr, [newDateField.field]: e.target.value })} />}
+        </div>
+        <div style={styles.inputRow}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}><input type="checkbox" checked={newCr.drapEnlisted} onChange={(e) => setNewCr({ ...newCr, drapEnlisted: e.target.checked })} /> DRAP Enlisted/Registered</label>
+          {newCr.drapEnlisted && <input style={styles.input} placeholder="Registration/Enlistment No." value={newCr.regNo} onChange={(e) => setNewCr({ ...newCr, regNo: e.target.value })} />}
+          {newCr.drapEnlisted && <input style={styles.input} type="date" placeholder="Registration/Enlistment Date" value={newCr.regDate} onChange={(e) => setNewCr({ ...newCr, regDate: e.target.value })} />}
+        </div>
+        <div style={styles.inputRow}>
+          <select style={styles.select} value={newCr.marketed} onChange={(e) => setNewCr({ ...newCr, marketed: e.target.value })}><option value="">Marketed?</option>{MARKETED_OPTIONS.map((m) => <option key={m}>{m}</option>)}</select>
+          {newCr.marketed === "Yes" && <input style={styles.input} placeholder="Sale Percentage" value={newCr.salePercentage} onChange={(e) => setNewCr({ ...newCr, salePercentage: e.target.value })} />}
+          {newCr.marketed === "Yes" && <input style={styles.input} type="date" placeholder="Marketed Date" value={newCr.marketedDate} onChange={(e) => setNewCr({ ...newCr, marketedDate: e.target.value })} />}
+          <button style={styles.addBtn} onClick={addCopyright}><Plus size={16} /> Add</button>
+        </div>
+        {copyrights.length === 0 ? <EmptyState text="No copyright entries yet." /> : copyrights.map((c) => {
+          const dateField = statusDateField(c.status);
+          return (
+            <div key={c.id} style={styles.candidateCard}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name}</div>
+                <button style={styles.iconBtnDanger} onClick={() => removeCr(c.id)}><Trash2 size={13} /></button>
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
+                <select style={styles.statusSelect} value={c.status} onChange={(e) => updateCr(c.id, "status", e.target.value)}>{CR_STATUSES.map((s) => <option key={s}>{s}</option>)}</select>
+                {dateField && <LabeledMiniInput label={dateField.label} type="date" value={c[dateField.field]} onChange={(v) => updateCr(c.id, dateField.field, v)} />}
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginTop: 8 }}><input type="checkbox" checked={c.drapEnlisted} onChange={(e) => updateCr(c.id, "drapEnlisted", e.target.checked)} /> DRAP Enlisted/Registered</label>
+              {c.drapEnlisted && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+                  <LabeledMiniInput label="Registration/Enlistment No." value={c.regNo} onChange={(v) => updateCr(c.id, "regNo", v)} />
+                  <LabeledMiniInput label="Registration/Enlistment Date" type="date" value={c.regDate} onChange={(v) => updateCr(c.id, "regDate", v)} />
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <div><div style={{ fontSize: 10.5, color: "#9AA5B8", marginBottom: 2 }}>Marketed / Non-Marketed</div>
+                  <select style={styles.statusSelect} value={c.marketed} onChange={(e) => updateCr(c.id, "marketed", e.target.value)}><option value="">—</option>{MARKETED_OPTIONS.map((m) => <option key={m}>{m}</option>)}</select>
+                </div>
+                {c.marketed === "Yes" && <LabeledMiniInput label="Sale Percentage" value={c.salePercentage} onChange={(v) => updateCr(c.id, "salePercentage", v)} />}
+                {c.marketed === "Yes" && <LabeledMiniInput label="Marketed Date" type="date" value={c.marketedDate} onChange={(v) => updateCr(c.id, "marketedDate", v)} />}
+              </div>
+            </div>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+function CopyrightOppositionTab({ crOppByRgp, crOppByRgpCrud, crOppByRgpFileRef, onCrOppByRgpExcel, crOppByRgpImportMsg,
+  crOppAgainstRgp, crOppAgainstRgpCrud, crOppAgainstRgpFileRef, onCrOppAgainstRgpExcel, crOppAgainstRgpImportMsg,
+  decisionToOpposeCopyright, decisionCrCrud, copyrights }) {
+  const [subTab, setSubTab] = useState("by");
+  const [caseFilter, setCaseFilter] = useState("all");
+  const filtered = decisionToOpposeCopyright.filter((d) => caseFilter === "all" || d.caseStatus === caseFilter);
+
+  return (
+    <div>
+      <TabHeader eyebrow="COPYRIGHT OPPOSITION" title="Copyright Opposition" action={
+        <GenerateReportButton onClick={() => openReportWindow("Copyright Opposition Report", `
+          ${dataTable("Copyright Opposition — By RGP", crOppByRgp, [
+            { header: "Complaint By", get: (r) => r.companyName }, { header: "RGP Work", get: (r) => r.rgpBrandName }, { header: "RGP Copyright No.", get: (r) => r.rgpIdNo },
+            { header: "Other Company", get: (r) => r.otherBrandName }, { header: "Filed Date", get: (r) => r.filedDate }, { header: "Status", get: (r) => r.status },
+          ])}
+          ${dataTable("Copyright Opposition — Against RGP", crOppAgainstRgp, [
+            { header: "Company", get: (r) => r.companyName }, { header: "RGP Work", get: (r) => r.rgpBrandName }, { header: "RGP Copyright No.", get: (r) => r.rgpIdNo },
+            { header: "Other Company", get: (r) => r.otherBrandName }, { header: "Filed Date", get: (r) => r.filedDate }, { header: "Status", get: (r) => r.status },
+          ])}
+          ${dataTable("Decision to Oppose — Copyright", decisionToOpposeCopyright, [
+            { header: "Complaint #", get: (r) => r.complaintNo }, { header: "Company", get: (r) => r.companyName }, { header: "Nature", get: (r) => r.nature },
+            { header: "Marketed", get: (r) => r.marketed }, { header: "Sale %", get: (r) => r.salePercentage }, { header: "Decision", get: (r) => (r.decision || []).join(", ") },
+            { header: "Case Status", get: (r) => r.caseStatus }, { header: "Action Taken", get: (r) => r.actionTaken },
+          ])}
+        `)} />
+      } />
+      <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+        <FilterPill active={subTab === "by"} onClick={() => setSubTab("by")} label="Copyright Opposition by RGP" />
+        <FilterPill active={subTab === "against"} onClick={() => setSubTab("against")} label="Copyright Opposition Against RGP" />
+        <FilterPill active={subTab === "decision"} onClick={() => setSubTab("decision")} label="Decision to Oppose Copyright" />
+      </div>
+
+      {subTab === "by" && (
+        <OppTableSection title="Copyright Opposition by RGP" hint="Records auto-added when a Decision to Oppose Copyright case is marked 'Filed in IPO (Opposition)' — or add/upload known cases manually here."
+          rows={crOppByRgp} crud={crOppByRgpCrud} fileRef={crOppByRgpFileRef} onExcel={onCrOppByRgpExcel} importMsg={crOppByRgpImportMsg}
+          statusOptions={CR_OPP_STATUS_BY_RGP} mode="copyright" showNiceClass={false} sourceItems={copyrights} />
+      )}
+      {subTab === "against" && (
+        <OppTableSection title="Copyright Opposition Against RGP" hint="Add or upload cases where another company opposed one of our copyrights."
+          rows={crOppAgainstRgp} crud={crOppAgainstRgpCrud} fileRef={crOppAgainstRgpFileRef} onExcel={onCrOppAgainstRgpExcel} importMsg={crOppAgainstRgpImportMsg}
+          statusOptions={CR_OPP_STATUS_AGAINST_RGP} mode="copyright" showNiceClass={false} sourceItems={copyrights} />
+      )}
+      {subTab === "decision" && (
+        <section style={styles.card}>
+          <div style={styles.cardTitle}>Decision to Oppose Copyright</div>
+          <div style={styles.cardSub}>Auto-populated from Complaint Log entries marked "Copyright". Selecting "Filed in IPO (Opposition)" auto-adds this case to Copyright Opposition by RGP.</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+            <FilterPill active={caseFilter === "all"} onClick={() => setCaseFilter("all")} label="All" />
+            {CASE_STATUS_OPTIONS.map((s) => <FilterPill key={s} active={caseFilter === s} onClick={() => setCaseFilter(s)} label={s} />)}
+          </div>
+          {filtered.length === 0 ? <EmptyState text="No copyright complaints escalated here yet." /> : filtered.map((d) => (
+            <DecisionCard key={d.id} row={d} onUpdate={decisionCrCrud.update} onToggleTag={decisionCrCrud.toggleTag} onRemove={decisionCrCrud.remove} companyLabel="Company Name" />
+          ))}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function EnlistedTab({ trademarks }) {
+  return (
+    <div>
+      <TabHeader eyebrow="ENLISTED/REGISTERED PRODUCTS" title="DRAP-Enlisted / Registered Trademarks" action={
+        <GenerateReportButton onClick={() => openReportWindow("Enlisted/Registered Products Report", dataTable("DRAP-Enlisted / Registered Trademarks", trademarks, [
+          { header: "Trademark", get: (r) => r.name }, { header: "Product", get: (r) => r.assignedProduct }, { header: "Class", get: (r) => r.cls },
+          { header: "Enlistment/Reg. No.", get: (r) => r.enlistmentRegNo }, { header: "Enlistment/Reg. Date", get: (r) => r.enlistmentRegDate },
+        ]))} />
+      } />
+      <section style={styles.card}>
+        <div style={styles.cardSub}>Pulled live from TM Portfolio. Edit these in TM Portfolio.</div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+          <button style={{ ...styles.uploadBtn, background: "#2E6F6E" }} onClick={() => exportToExcel(trademarks, [
+            { header: "Trademark", get: (r) => r.name }, { header: "Product", get: (r) => r.assignedProduct }, { header: "Class", get: (r) => r.cls },
+            { header: "Enlistment/Registration Number", get: (r) => r.enlistmentRegNo }, { header: "Enlistment/Registration Date", get: (r) => r.enlistmentRegDate },
+          ], "enlisted-registered-products.xlsx")}>⬆ Export to Excel ({trademarks.length})</button>
+        </div>
+        {trademarks.length === 0 ? <EmptyState text="No trademarks marked DRAP Enlisted/Registered yet." /> : (
+          <div style={styles.table}>
+            <div style={styles.tableHeadRow}><span style={{ flex: 1.5 }}>Trademark</span><span style={{ flex: 1.5 }}>Product</span><span style={{ flex: 1 }}>Class</span><span style={{ flex: 1.2 }}>Enlistment/Reg. No.</span></div>
+            {trademarks.map((p) => (
+              <div style={styles.tableRow} key={p.id}>
+                <span style={{ flex: 1.5, fontWeight: 600 }}>{p.name}</span>
+                <span style={{ flex: 1.5, color: "#3A3F4B" }}>{p.assignedProduct || "—"}</span>
+                <span style={{ flex: 1, color: "#6B7280" }}>{p.cls}</span>
+                <span style={{ flex: 1.2, color: "#6B7280", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{p.enlistmentRegNo || "—"}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function EcommerceTab({ ecommerce, newEcom, setNewEcom, addEcom, updateEcom, removeEcom, fileInputRef, onExcel, importMsg }) {
+  return (
+    <div>
+      <TabHeader eyebrow="E-COMMERCE" title="E-commerce Brand Protection" action={
+        <GenerateReportButton onClick={() => openReportWindow("E-commerce Watch Report", dataTable("E-commerce Watch", ecommerce, [
+          { header: "Brand Name", get: (r) => r.brandName }, { header: "Product", get: (r) => r.product }, { header: "Application Date", get: (r) => r.applicationDate },
+          { header: "Application No.", get: (r) => r.applicationNumber }, { header: "Status", get: (r) => r.applicationStatus },
+        ]))} />
+      } />
+      <section style={styles.card}>
+        <div style={styles.cardTitle}>Registered/Applied Brand Coverage for E-commerce</div>
+        <ExcelUploadRow fileInputRef={fileInputRef} onExcel={onExcel} importMsg={importMsg} hint="Columns: Brand Name, Product, Application Date, Application Number, Application Status."
+          exportRows={ecommerce} exportColumns={[
+            { header: "Brand Name", get: (r) => r.brandName }, { header: "Product", get: (r) => r.product },
+            { header: "Application Date", get: (r) => r.applicationDate }, { header: "Application Number", get: (r) => r.applicationNumber }, { header: "Application Status", get: (r) => r.applicationStatus },
+          ]} exportName="ecommerce.xlsx" />
+        <div style={styles.inputRow}>
+          <input style={{ ...styles.input, flex: 1.5 }} placeholder="Brand name" value={newEcom.brandName} onChange={(e) => setNewEcom({ ...newEcom, brandName: e.target.value })} />
+          <input style={styles.input} placeholder="Product" value={newEcom.product} onChange={(e) => setNewEcom({ ...newEcom, product: e.target.value })} />
+        </div>
+        <div style={styles.inputRow}>
+          <input style={styles.input} type="date" value={newEcom.applicationDate} onChange={(e) => setNewEcom({ ...newEcom, applicationDate: e.target.value })} />
+          <input style={styles.input} placeholder="Application number" value={newEcom.applicationNumber} onChange={(e) => setNewEcom({ ...newEcom, applicationNumber: e.target.value })} />
+          <select style={styles.select} value={newEcom.applicationStatus} onChange={(e) => setNewEcom({ ...newEcom, applicationStatus: e.target.value })}><option>Applied</option><option>Certified</option></select>
+          <button style={styles.addBtn} onClick={addEcom}><Plus size={16} /> Add</button>
+        </div>
+        {ecommerce.length === 0 ? <EmptyState text="No e-commerce brand records yet." /> : (
+          <div style={styles.table}>
+            <div style={styles.tableHeadRow}><span style={{ flex: 1.3 }}>Brand</span><span style={{ flex: 1.3 }}>Product</span><span style={{ flex: 1 }}>App. Date</span><span style={{ flex: 1 }}>App. Number</span><span style={{ flex: 1 }}>Status</span><span style={{ width: 30 }}></span></div>
+            {ecommerce.map((e) => (
+              <div style={styles.tableRow} key={e.id}>
+                <span style={{ flex: 1.3, fontWeight: 600 }}>{e.brandName}</span>
+                <span style={{ flex: 1.3, color: "#6B7280" }}>{e.product}</span>
+                <span style={{ flex: 1, color: "#6B7280", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{e.applicationDate}</span>
+                <span style={{ flex: 1, color: "#6B7280" }}>{e.applicationNumber || "—"}</span>
+                <span style={{ flex: 1 }}><select style={styles.statusSelect} value={e.applicationStatus} onChange={(ev) => updateEcom(e.id, "applicationStatus", ev.target.value)}><option>Applied</option><option>Certified</option></select></span>
+                <span style={{ width: 30 }}><button style={styles.iconBtnDanger} onClick={() => removeEcom(e.id)}><Trash2 size={14} /></button></span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function MiscTab({ misc, newMisc, setNewMisc, addMisc, removeMisc, fileInputRef, onExcel, importMsg }) {
+  return (
+    <div>
+      <TabHeader eyebrow="MISCELLANEOUS" title="Miscellaneous Items" action={
+        <GenerateReportButton onClick={() => openReportWindow("Miscellaneous Report", dataTable("Miscellaneous", misc, [
+          { header: "Title", get: (r) => r.title }, { header: "Description", get: (r) => r.description }, { header: "Date", get: (r) => r.date },
+        ]))} />
+      } />
+      <section style={styles.card}>
+        <ExcelUploadRow fileInputRef={fileInputRef} onExcel={onExcel} importMsg={importMsg} hint="Columns: Title, Description, Date."
+          exportRows={misc} exportColumns={[{ header: "Title", get: (r) => r.title }, { header: "Description", get: (r) => r.description }, { header: "Date", get: (r) => r.date }]} exportName="miscellaneous.xlsx" />
+        <div style={styles.inputRow}>
+          <input style={{ ...styles.input, flex: 1.3 }} placeholder="Title" value={newMisc.title} onChange={(e) => setNewMisc({ ...newMisc, title: e.target.value })} />
+          <input style={{ ...styles.input, flex: 2 }} placeholder="Description" value={newMisc.description} onChange={(e) => setNewMisc({ ...newMisc, description: e.target.value })} />
+          <button style={styles.addBtn} onClick={addMisc}><Plus size={16} /> Add</button>
+        </div>
+        {misc.length === 0 ? <EmptyState text="Nothing here yet." /> : (
+          <div style={styles.table}>
+            <div style={styles.tableHeadRow}><span style={{ flex: 1.3 }}>Title</span><span style={{ flex: 2 }}>Description</span><span style={{ flex: 1 }}>Date</span><span style={{ width: 30 }}></span></div>
+            {misc.map((m) => (
+              <div style={styles.tableRow} key={m.id}>
+                <span style={{ flex: 1.3, fontWeight: 600 }}>{m.title}</span>
+                <span style={{ flex: 2, color: "#6B7280", fontSize: 12.5 }}>{m.description || "—"}</span>
+                <span style={{ flex: 1, color: "#6B7280", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{m.date}</span>
+                <span style={{ width: 30 }}><button style={styles.iconBtnDanger} onClick={() => removeMisc(m.id)}><Trash2 size={14} /></button></span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function WatchlistTab({ watchlist, newMark, setNewMark, addToWatchlist, advanceStage, removeMark, combinedBankNames }) {
+  return (
+    <div>
+      <TabHeader eyebrow="JOURNAL WATCHLIST" title="Trademark Journal Watchlist" action={
+        <GenerateReportButton onClick={() => openReportWindow("Journal Watchlist Report", dataTable("Journal Watchlist", watchlist, [
+          { header: "Mark", get: (r) => r.name }, { header: "Class", get: (r) => r.cls }, { header: "Date", get: (r) => r.date }, { header: "Stage", get: (r) => r.stage },
+        ]))} />
+      } />
+      <section style={styles.card}>
+        <div style={styles.cardSub}>Entries spotted from IPO-Pakistan journal, distributors, or e-commerce.</div>
+        <div style={styles.inputRow}>
+          <input style={{ ...styles.input, flex: 2 }} placeholder="Mark name" value={newMark.name} onChange={(e) => setNewMark({ ...newMark, name: e.target.value })} />
+          <select style={styles.select} value={newMark.cls} onChange={(e) => setNewMark({ ...newMark, cls: e.target.value })}>{TM_CLASSES.map((c) => <option key={c}>{c}</option>)}</select>
+          <button style={styles.addBtn} onClick={addToWatchlist}><Plus size={16} /> Add</button>
+        </div>
+        {watchlist.length === 0 ? <EmptyState text="Watchlist is empty." /> : (
+          <div style={styles.table}>
+            <div style={styles.tableHeadRow}><span style={{ flex: 2 }}>Mark</span><span style={{ flex: 1 }}>Class</span><span style={{ flex: 1 }}>Similarity</span><span style={{ flex: 1 }}>Date</span><span style={{ flex: 1.4 }}>Stage</span><span style={{ width: 60 }}></span></div>
+            {watchlist.map((w) => {
+              const best = bestMatchInBank(w.name, combinedBankNames);
+              return (
+                <div style={styles.tableRow} key={w.id}>
+                  <span style={{ flex: 2, fontWeight: 600 }}>{w.name}</span>
+                  <span style={{ flex: 1, color: "#6B7280" }}>{w.cls}</span>
+                  <span style={{ flex: 1, color: best.score >= 70 ? "#B54834" : "#6B7280", fontWeight: 600 }}>{best.score}%</span>
+                  <span style={{ flex: 1, color: "#6B7280", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{w.date}</span>
+                  <span style={{ flex: 1.4 }}><StagePill stage={w.stage} /></span>
+                  <span style={{ width: 60, display: "flex", gap: 6 }}>
+                    <button style={styles.iconBtn} onClick={() => advanceStage(w.id)}><ChevronRight size={14} /></button>
+                    <button style={styles.iconBtnDanger} onClick={() => removeMark(w.id)}><Trash2 size={14} /></button>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ComplaintsTab({ complaints, newComplaint, setNewComplaint, addComplaint, removeComplaint, toggleComplaintResolved,
+  handleComplaintImages, removeNewComplaintImage, complaintImagesRef, fileInputRef, onExcel, importMsg,
+  syncUrl, saveSyncUrl, syncFromPortal, syncStatus, syncing, enlistedNames, certifiedNames }) {
+  const [issueFilter, setIssueFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const toggleExpanded = (id) => setExpandedIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const filtered = complaints.filter((c) =>
+    (issueFilter === "all" || c.similarityIssue === issueFilter) &&
+    (statusFilter === "all" || (statusFilter === "open" ? !c.resolved : c.resolved))
+  );
+
+  return (
+    <div>
+      <TabHeader eyebrow="COMPLAINT LOG" title="Complaint Log" action={
+        <GenerateReportButton onClick={() => openReportWindow("Complaint Log Report", dataTable("Complaint Log", complaints, [
+          { header: "Date", get: (r) => r.date }, { header: "Filed By", get: (r) => r.filedBy }, { header: "Company", get: (r) => r.companyName },
+          { header: "Product", get: (r) => r.productName }, { header: "Issue", get: (r) => r.similarityIssue }, { header: "Similar To", get: (r) => r.similarTo },
+          { header: "Reg/Enlistment No.", get: (r) => r.enlistmentRegNo }, { header: "Status", get: (r) => r.resolved ? "Closed" : "Open" }, { header: "Description", get: (r) => r.text },
+        ]))} />
+      } />
+
+      <section style={styles.card}>
+        <div style={styles.cardTitle}>Field Force Portal Sync</div>
+        <div style={styles.cardSub}>Paste your Apps Script Web App URL once — then hit Sync Now anytime to pull in new complaints submitted from the field.</div>
+        <div style={styles.inputRow}>
+          <input style={{ ...styles.input, flex: 2 }} placeholder="https://script.google.com/macros/s/XXXXXXXX/exec" value={syncUrl} onChange={(e) => saveSyncUrl(e.target.value)} />
+          <button style={styles.uploadBtn} onClick={syncFromPortal} disabled={syncing}><Upload size={14} /> {syncing ? "Syncing..." : "Sync Now"}</button>
+        </div>
+        {syncStatus && <div style={styles.importMsg}>{syncStatus}</div>}
+      </section>
+
+      <section style={styles.card}>
+        <div style={styles.cardSub}>Filed by lawyer, field force, regulatory, management, or the public complaint portal.</div>
+        <ExcelUploadRow fileInputRef={fileInputRef} onExcel={onExcel} importMsg={importMsg}
+          hint="Columns: Complaint, Filed By, Company Name, Company Address, Product Name, Marketed, Sale Percentage, Similarity Issue, Enlistment Number, Similar To, Certified Mark, Date, Resolved."
+          exportRows={complaints} exportColumns={[
+            { header: "Complaint", get: (r) => r.text }, { header: "Filed By", get: (r) => r.filedBy },
+            { header: "Company Name", get: (r) => r.companyName }, { header: "Company Address", get: (r) => r.companyAddress }, { header: "Product Name", get: (r) => r.productName },
+            { header: "Marketed", get: (r) => r.marketed }, { header: "Sale Percentage", get: (r) => r.salePercentage },
+            { header: "Similarity Issue", get: (r) => r.similarityIssue }, { header: "Enlistment Number", get: (r) => r.enlistmentRegNo },
+            { header: "Similar To", get: (r) => r.similarTo }, { header: "Certified Mark", get: (r) => r.certifiedMark },
+            { header: "Date", get: (r) => r.date }, { header: "Resolved", get: (r) => r.resolved ? "Yes" : "No" },
+          ]} exportName="complaint-log.xlsx" />
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+          <textarea style={styles.textarea} placeholder="Describe the issue..." value={newComplaint.text} onChange={(e) => setNewComplaint({ ...newComplaint, text: e.target.value })} />
+          <div style={styles.inputRow}>
+            <select style={styles.select} value={newComplaint.filedBy} onChange={(e) => setNewComplaint({ ...newComplaint, filedBy: e.target.value })}>{FILED_BY_OPTIONS.map((o) => <option key={o}>{o}</option>)}</select>
+            <input style={styles.input} placeholder="Company name" value={newComplaint.companyName} onChange={(e) => setNewComplaint({ ...newComplaint, companyName: e.target.value })} />
+            <input style={styles.input} placeholder="Company address" value={newComplaint.companyAddress} onChange={(e) => setNewComplaint({ ...newComplaint, companyAddress: e.target.value })} />
+          </div>
+          <div style={styles.inputRow}>
+            <input style={styles.input} placeholder="Product name" value={newComplaint.productName} onChange={(e) => setNewComplaint({ ...newComplaint, productName: e.target.value })} />
+            <select style={styles.select} value={newComplaint.marketed} onChange={(e) => setNewComplaint({ ...newComplaint, marketed: e.target.value, salePercentage: e.target.value === "No" ? "" : newComplaint.salePercentage })}>
+              <option value="">Marketed?</option>{MARKETED_OPTIONS.map((m) => <option key={m}>{m}</option>)}
+            </select>
+            {newComplaint.marketed === "Yes" && <input style={styles.input} placeholder="Sale percentage" value={newComplaint.salePercentage} onChange={(e) => setNewComplaint({ ...newComplaint, salePercentage: e.target.value })} />}
+          </div>
+          {newComplaint.marketed === "Yes" && newComplaint.salePercentage && (
+            <div style={{ fontSize: 11, color: "#B9821F", background: "#FBF1DC", padding: "6px 10px", borderRadius: 6 }}>{saleSuggestion(newComplaint.salePercentage)}</div>
+          )}
+          <div style={styles.inputRow}>
+            <select style={styles.select} value={newComplaint.similarityIssue} onChange={(e) => setNewComplaint({ ...newComplaint, similarityIssue: e.target.value })}>{SIMILARITY_ISSUES.map((s) => <option key={s}>{s}</option>)}</select>
+            <input style={styles.input} placeholder="Enlistment/Registration No." value={newComplaint.enlistmentRegNo} onChange={(e) => setNewComplaint({ ...newComplaint, enlistmentRegNo: e.target.value })} />
+          </div>
+          <div style={styles.inputRow}>
+            <input style={{ ...styles.input, flex: 1 }} list="enlisted-names-list" placeholder="Similar to: type or pick DRAP Enlisted or Registered product of RGP" value={newComplaint.similarTo} onChange={(e) => setNewComplaint({ ...newComplaint, similarTo: e.target.value })} />
+            <datalist id="enlisted-names-list">{enlistedNames.map((n) => <option key={n} value={n} />)}</datalist>
+          </div>
+          <div style={styles.inputRow}>
+            <input style={{ ...styles.input, flex: 1 }} list="certified-names-list" placeholder="Certified Mark: type or pick a Certified-status trademark" value={newComplaint.certifiedMark} onChange={(e) => setNewComplaint({ ...newComplaint, certifiedMark: e.target.value })} />
+            <datalist id="certified-names-list">{certifiedNames.map((n) => <option key={n} value={n} />)}</datalist>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            {newComplaint.images.map((img, i) => (
+              <div key={i} style={{ position: "relative" }}><img src={img} alt="evidence" style={styles.thumbSmall} /><button style={styles.thumbRemove} onClick={() => removeNewComplaintImage(i)}><X size={11} /></button></div>
+            ))}
+            <button style={styles.imageUploadBtn} onClick={() => complaintImagesRef.current.click()}><ImageIcon size={16} color="#6B7280" /><span>Add photo(s)</span></button>
+            <input type="file" accept="image/*" multiple ref={complaintImagesRef} style={{ display: "none" }} onChange={handleComplaintImages} />
+          </div>
+          <button style={{ ...styles.addBtn, alignSelf: "flex-start" }} onClick={addComplaint}><Plus size={16} /> Log Complaint</button>
+        </div>
+
+        <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>{["all", ...SIMILARITY_ISSUES].map((f) => <FilterPill key={f} active={issueFilter === f} onClick={() => setIssueFilter(f)} label={f === "all" ? "All Issues" : f} />)}</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+          <FilterPill active={statusFilter === "all"} onClick={() => setStatusFilter("all")} label="All Status" />
+          <FilterPill active={statusFilter === "open"} onClick={() => setStatusFilter("open")} label="Open" />
+          <FilterPill active={statusFilter === "closed"} onClick={() => setStatusFilter("closed")} label="Closed" />
+        </div>
+
+        {filtered.length === 0 ? <EmptyState text="No complaints match this filter." /> : filtered.map((c) => {
+          const d = daysSince(c.date);
+          const overdue = !c.resolved && d !== null && d >= 15;
+          const expanded = expandedIds.has(c.id);
+          return (
+            <div style={{ ...styles.complaintItem, background: overdue ? "#FBF1DC" : "transparent", borderRadius: 8, padding: 0, marginBottom: 8, border: "1px solid #EEF0F3" }} key={c.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "10px 12px", cursor: "pointer" }} onClick={() => toggleExpanded(c.id)}>
+                <ChevronRight size={11} color="#9AA5B8" style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, color: "#3A3F4B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: expanded ? "normal" : "nowrap" }}>{c.text}</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4, alignItems: "center" }}>
+                    <span style={styles.metaTag}>{c.similarityIssue}</span>
+                    {c.companyName && <span style={styles.metaTag}>{c.companyName}</span>}
+                    <span style={{ fontSize: 10.5, color: "#9AA5B8", fontFamily: "'IBM Plex Mono', monospace" }}>{c.date}</span>
+                    <span style={{ ...styles.metaTag, background: c.resolved ? "#E4F0EF" : "#FDECEA", color: c.resolved ? "#2E6F6E" : "#B54834" }}>{c.resolved ? "Closed" : "Open"}</span>
+                    {overdue && <span style={{ ...styles.metaTag, background: "#F7E5E1", color: "#B54834", fontWeight: 700 }}><Clock size={10} /> {d}d</span>}
+                  </div>
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, whiteSpace: "nowrap", cursor: "pointer" }} onClick={(e) => e.stopPropagation()}>
+                  <input type="checkbox" checked={c.resolved} onChange={() => toggleComplaintResolved(c.id)} /> {c.resolved ? "Reopen" : "Close"}
+                </label>
+                <button style={styles.iconBtnDanger} onClick={(e) => { e.stopPropagation(); removeComplaint(c.id); }}><X size={13} /></button>
+              </div>
+              {expanded && (
+                <div style={{ padding: "0 12px 14px 33px" }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2, alignItems: "center" }}>
+                    <span style={styles.metaTag}>Filed by: {c.filedBy}</span>
+                    {c.productName && <span style={styles.metaTag}>Product: {c.productName}</span>}
+                    {c.companyAddress && <span style={styles.metaTag}>Address: {c.companyAddress}</span>}
+                    {c.enlistmentRegNo && <span style={styles.metaTag}>Reg No: {c.enlistmentRegNo}</span>}
+                    {c.similarTo && <span style={styles.metaTag}>Similar to: {c.similarTo}</span>}
+                    {c.certifiedMark && <span style={styles.metaTag}>Certified Mark: {c.certifiedMark}</span>}
+                    {c.marketed && <span style={styles.metaTag}>{c.marketed === "Yes" ? `Marketed (${c.salePercentage || "?"}%)` : "Non-Marketed"}</span>}
+                  </div>
+                  {c.images && c.images.length > 0 && <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>{c.images.map((img, i) => <img key={i} src={img} alt={`evidence ${i}`} style={styles.thumb} />)}</div>}
+                  {(c.similarityIssue === "Trademark" || c.similarityIssue === "Copyright") && (
+                    <div style={{ fontSize: 11, color: "#2E6F6E", marginTop: 8 }}>→ Auto-added to {c.similarityIssue === "Trademark" ? "TM Opposition ▸ Decision to Oppose TM" : "Copyright Opposition ▸ Decision to Oppose Copyright"}</div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </section>
+    </div>
+  );
+}
+
+function ChangeCredentialsPanel() {
+  const [creds, setCreds] = useState(null);
+  const [newId, setNewId] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    storage.get(SIMPLE_AUTH_KEY).then((r) => {
+      if (r && r.value) { try { setCreds(JSON.parse(r.value)); return; } catch (e) {} }
+      setCreds({ id: "RGP", password: "rgp" });
+    });
+  }, []);
+
+  const save = async () => {
+    if (!newId.trim() || !newPw.trim()) { setMsg("Both fields are required."); return; }
+    const updated = { id: newId.trim(), password: newPw };
+    await storage.set(SIMPLE_AUTH_KEY, JSON.stringify(updated));
+    setCreds(updated); setNewId(""); setNewPw("");
+    setMsg("Login ID and password updated.");
+  };
+
+  if (!creds) return null;
+  return (
+    <section style={styles.card}>
+      <div style={styles.cardTitle}>Change Dashboard Login</div>
+      <div style={styles.cardSub}>Current Login ID: <b>{creds.id}</b>. Set a new ID and password below — takes effect next time someone signs in.</div>
+      <div style={styles.inputRow}>
+        <input style={styles.input} placeholder="New Login ID" value={newId} onChange={(e) => setNewId(e.target.value)} />
+        <input style={styles.input} placeholder="New Password" value={newPw} onChange={(e) => setNewPw(e.target.value)} />
+        <button style={styles.addBtn} onClick={save}>Save</button>
+      </div>
+      {msg && <div style={styles.importMsg}>{msg}</div>}
+    </section>
+  );
+}
+
+function SheetsTab({ sheets, deleteSheet, exportAllData, importAllData, importAllRef, exportImportMsg }) {
+  return (
+    <div>
+      <TabHeader eyebrow="DATA SOURCES" title="Uploaded Excel Sheets" action={
+        <GenerateReportButton onClick={() => openReportWindow("Data Sources Report", dataTable("Data Sources (Excel Imports)", sheets, [
+          { header: "File Name", get: (r) => r.name }, { header: "Tab", get: (r) => r.tab }, { header: "Uploaded", get: (r) => r.uploadedAt }, { header: "Rows Imported", get: (r) => r.rowCount },
+        ]))} />
+      } />
+      <ChangeCredentialsPanel />
+      <section style={styles.card}>
+        <div style={styles.cardTitle}>Share Data With Your Colleague</div>
+        <div style={styles.cardSub}>If not using Firebase live-sync, export your data to a file and have your colleague import & merge it.</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button style={styles.addBtn} onClick={exportAllData}><Upload size={14} /> Export All Data</button>
+          <input type="file" accept=".json" ref={importAllRef} style={{ display: "none" }} onChange={importAllData} />
+          <button style={styles.uploadBtn} onClick={() => importAllRef.current.click()}><Upload size={14} /> Import &amp; Merge Data</button>
+        </div>
+        {exportImportMsg && <div style={{ ...styles.importMsg, marginTop: 10 }}>{exportImportMsg}</div>}
+      </section>
+      <section style={styles.card}>
+        <div style={styles.cardSub}>Every Excel/CSV file you've uploaded, across all tabs. Deleting a sheet removes every row it added.</div>
+        {sheets.length === 0 ? <EmptyState text="No Excel sheets uploaded yet." /> : (
+          <div style={styles.table}>
+            <div style={styles.tableHeadRow}><span style={{ flex: 2 }}>File name</span><span style={{ flex: 1 }}>Tab</span><span style={{ flex: 1 }}>Rows added</span><span style={{ flex: 1 }}>Uploaded</span><span style={{ width: 30 }}></span></div>
+            {sheets.map((s) => (
+              <div style={styles.tableRow} key={s.id}>
+                <span style={{ flex: 2, fontWeight: 600 }}>{s.name}</span>
+                <span style={{ flex: 1, color: "#6B7280", textTransform: "capitalize" }}>{s.tab}</span>
+                <span style={{ flex: 1, color: "#6B7280" }}>{s.rowCount}</span>
+                <span style={{ flex: 1, color: "#6B7280", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>{s.uploadedAt}</span>
+                <span style={{ width: 30 }}><button style={styles.iconBtnDanger} onClick={() => deleteSheet(s.id)}><Trash2 size={14} /></button></span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// =============== SHARED SMALL COMPONENTS ===============
+function TabHeader({ eyebrow, title, action }) {
+  return <header style={styles.header}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 10 }}><div><div style={styles.eyebrow}>{eyebrow}</div><h1 style={styles.h1}>{title}</h1></div>{action}</div></header>;
+}
+function EmptyState({ text }) { return <div style={{ fontSize: 13, color: "#9AA5B8", padding: "18px 4px" }}>{text}</div>; }
+function ExpandableRow({ summary, children, defaultOpen }) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  return (
+    <div style={styles.expandableRow}>
+      <div style={styles.expandableSummary} onClick={() => setOpen(!open)}>
+        <span style={{ color: "#9AA5B8", fontSize: 11, width: 14 }}>{open ? "▼" : "▶"}</span>
+        {summary}
+      </div>
+      {open && <div style={styles.expandableBody}>{children}</div>}
+    </div>
+  );
+}
+function FilterPill({ active, onClick, label }) {
+  return <button onClick={onClick} style={{ border: "1px solid " + (active ? "#1B2A4A" : "#E1E4EA"), background: active ? "#1B2A4A" : "#fff", color: active ? "#fff" : "#3A3F4B", borderRadius: 20, padding: "6px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>{label}</button>;
+}
+function StagePill({ stage }) {
+  const colors = { Monitor: { bg: "#EAF3F2", fg: "#2E6F6E" }, "Cease & Desist": { bg: "#FBF1DC", fg: "#B9821F" }, "DRAP Complaint": { bg: "#F2E7DE", fg: "#A85C2E" }, "TM Opposition": { bg: "#F7E5E1", fg: "#B54834" } };
+  const c = colors[stage] || colors["Monitor"];
+  return <span style={{ background: c.bg, color: c.fg, padding: "4px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600 }}>{stage}</span>;
+}
+function MiniStat({ icon, label, value }) {
+  return <div style={styles.miniStat}>{icon}<div><div style={styles.miniStatValue}>{value}</div><div style={styles.miniStatLabel}>{label}</div></div></div>;
+}
+
+const fontImport = `@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');`;
+
+const styles = {
+  page: { display: "flex", minHeight: "100vh", background: "#F7F5F0", fontFamily: "'Inter', system-ui, sans-serif", color: "#232833" },
+  sidebar: { width: 250, background: "#1B2A4A", color: "#EDEFF3", padding: "24px 18px", display: "flex", flexDirection: "column", flexShrink: 0, position: "sticky", top: 0, height: "100vh", overflowY: "auto" },
+  brand: { display: "flex", alignItems: "center", gap: 8 },
+  brandText: { fontFamily: "'Fraunces', serif", fontSize: 17, fontWeight: 600, letterSpacing: 0.2 },
+  sideSub: { fontSize: 11, color: "#9AA5B8", marginTop: 4, marginBottom: 24, lineHeight: 1.4 },
+  nav: { display: "flex", flexDirection: "column", gap: 3, flex: 1 },
+  navItemActive: { display: "flex", alignItems: "center", gap: 10, padding: "9px 11px", background: "rgba(217,164,65,0.15)", borderRadius: 8, fontSize: 12.5, fontWeight: 600, color: "#D9A441", cursor: "pointer" },
+  navItem: { display: "flex", alignItems: "center", gap: 10, padding: "9px 11px", color: "#B8C0D0", fontSize: 12.5, cursor: "pointer", borderRadius: 8 },
+  userFooter: { marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.1)", display: "flex", flexDirection: "column", gap: 8 },
+  logoutBtn: { alignSelf: "flex-start", background: "rgba(255,255,255,0.08)", color: "#EDEFF3", border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11.5, cursor: "pointer" },
+  loginPage: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F7F5F0", fontFamily: "'Inter', system-ui, sans-serif" },
+  loginCard: { background: "#fff", borderRadius: 16, padding: "32px 30px", width: 340, boxShadow: "0 2px 16px rgba(20,20,30,0.08)" },
+  main: { flex: 1, padding: "32px 40px", maxWidth: 1000 },
+  header: { marginBottom: 24 },
+  eyebrow: { fontSize: 11, letterSpacing: 1.5, color: "#2E6F6E", fontWeight: 600 },
+  h1: { fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 600, margin: "6px 0 0" },
+  statGroupTitle: { fontSize: 11.5, fontWeight: 700, color: "#3A3F4B", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 },
+  statSubTitle: { fontSize: 10.5, fontWeight: 600, color: "#6B7280", marginTop: 10, marginBottom: 6 },
+  statRowSmall: { display: "flex", gap: 10, flexWrap: "wrap" },
+  miniStat: { display: "flex", alignItems: "center", gap: 8, background: "#fff", borderRadius: 10, padding: "8px 12px", boxShadow: "0 1px 2px rgba(20,20,30,0.06)", flex: "1 1 150px" },
+  miniStatValue: { fontSize: 16, fontWeight: 700, fontFamily: "'Fraunces', serif", lineHeight: 1 },
+  miniStatLabel: { fontSize: 10.5, color: "#6B7280", marginTop: 2 },
+  statusSelect: { padding: "5px 8px", borderRadius: 6, border: "1px solid #E1E4EA", fontSize: 12.5, fontFamily: "inherit", width: "100%" },
+  warningBanner: { display: "flex", gap: 10, background: "#FBF1DC", border: "1px solid #F0DDA8", borderRadius: 10, padding: "12px 14px", marginBottom: 16, fontSize: 13, color: "#5C4517", alignItems: "flex-start" },
+  miniInput: { padding: "6px 8px", borderRadius: 6, border: "1px solid #E1E4EA", fontSize: 12.5, fontFamily: "inherit", width: "100%" },
+  card: { background: "#fff", borderRadius: 14, padding: "22px 24px", marginBottom: 20, boxShadow: "0 1px 2px rgba(20,20,30,0.06)" },
+  cardTitle: { fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 },
+  cardSub: { fontSize: 12.5, color: "#6B7280", marginTop: 4, marginBottom: 16 },
+  inputRow: { display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" },
+  input: { flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #E1E4EA", fontSize: 13.5, outline: "none", fontFamily: "inherit" },
+  textarea: { width: "100%", minHeight: 60, padding: "10px 12px", borderRadius: 8, border: "1px solid #E1E4EA", fontSize: 13.5, outline: "none", fontFamily: "inherit", resize: "vertical" },
+  select: { padding: "10px 12px", borderRadius: 8, border: "1px solid #E1E4EA", fontSize: 13.5, fontFamily: "inherit" },
+  addBtn: { display: "flex", alignItems: "center", gap: 6, background: "#1B2A4A", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
+  uploadBtn: { display: "flex", alignItems: "center", gap: 6, background: "#2E6F6E", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" },
+  importMsg: { fontSize: 12, color: "#2E6F6E", background: "#EAF3F2", padding: "6px 10px", borderRadius: 6, marginBottom: 10 },
+  gaugeTrack: { height: 8, background: "#EEF0F3", borderRadius: 20, overflow: "hidden" },
+  gaugeFill: { height: "100%", borderRadius: 20, transition: "width 0.3s ease" },
+  table: { display: "flex", flexDirection: "column" },
+  tableHeadRow: { display: "flex", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, color: "#9AA5B8", padding: "8px 6px", borderBottom: "1px solid #EEF0F3" },
+  tableRow: { display: "flex", alignItems: "center", padding: "12px 6px", borderBottom: "1px solid #F3F4F6", fontSize: 13.5 },
+  iconBtn: { border: "none", background: "#F7F5F0", borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#2E6F6E" },
+  iconBtnDanger: { border: "none", background: "#F7F5F0", borderRadius: 6, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#B54834" },
+  complaintItem: { padding: "12px 0", borderBottom: "1px solid #F3F4F6" },
+  metaTag: { background: "#F7F5F0", color: "#3A3F4B", fontSize: 11, padding: "2px 8px", borderRadius: 20, display: "inline-flex", alignItems: "center", gap: 4 },
+  thumb: { width: 90, height: 90, objectFit: "cover", borderRadius: 8, border: "1px solid #EEF0F3" },
+  imageUploadBtn: { display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: 100, height: 70, borderRadius: 8, border: "1.5px dashed #D8DCE3", background: "#FAFAF8", cursor: "pointer", fontSize: 11, color: "#6B7280" },
+  thumbSmall: { width: 100, height: 70, objectFit: "cover", borderRadius: 8, border: "1px solid #EEF0F3" },
+  thumbRemove: { position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", background: "#B54834", color: "#fff", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
+  candidateCard: { border: "1px solid #EEF0F3", borderRadius: 10, padding: "14px 16px", marginBottom: 12 },
+  expandableRow: { border: "1px solid #EEF0F3", borderRadius: 8, marginBottom: 6, overflow: "hidden" },
+  expandableSummary: { display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", cursor: "pointer", fontSize: 13, background: "#fff" },
+  expandableBody: { padding: "4px 16px 16px", background: "#FCFCFB", borderTop: "1px solid #EEF0F3" },
+  rowMeta: { fontSize: 11.5, color: "#6B7280", flexShrink: 0 },
+  decisionCard: { border: "1px solid #EEF0F3", borderRadius: 10, padding: "14px 16px", marginBottom: 14, background: "#FCFCFB" },
+  searchLink: { fontSize: 11, color: "#2E6F6E", textDecoration: "none", fontWeight: 600, marginLeft: 4 },
+  criteriaBox: { background: "#FBF1DC", border: "1px solid #F0DDA8", borderRadius: 10, padding: "16px 18px", marginTop: 10 },
+};
+
+// =============== SIMPLE LOGIN GATE (always shown, works with or without Firebase) ===============
+const SIMPLE_AUTH_KEY = "rgp:simpleAuth";
+function SimpleLoginGate({ children }) {
+  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem("rgp_simple_unlocked") === "true");
+  const [creds, setCreds] = useState(null);
+  const [idInput, setIdInput] = useState("");
+  const [pwInput, setPwInput] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    storage.get(SIMPLE_AUTH_KEY).then((r) => {
+      if (r && r.value) { try { setCreds(JSON.parse(r.value)); return; } catch (e) {} }
+      setCreds({ id: "RGP", password: "rgp" });
+    });
+  }, []);
+
+  if (unlocked) return children;
+  if (creds === null) return null;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (idInput.trim() === creds.id && pwInput === creds.password) {
+      sessionStorage.setItem("rgp_simple_unlocked", "true");
+      setUnlocked(true);
+    } else {
+      setError("Incorrect ID or password.");
+    }
+  };
+
+  return (
+    <div style={styles.loginPage}>
+      <style>{fontImport}</style>
+      <form style={styles.loginCard} onSubmit={handleSubmit}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <Shield size={22} color="#D9A441" /><span style={{ ...styles.brandText, color: "#1B2A4A" }}>RG Pharmaceutica</span>
+        </div>
+        <div style={{ fontSize: 12.5, color: "#6B7280", marginBottom: 22 }}>Enter the dashboard access ID and password</div>
+        <input style={{ ...styles.input, width: "100%" }} placeholder="Login ID" value={idInput} onChange={(e) => setIdInput(e.target.value)} required autoFocus />
+        <div style={{ height: 10 }} />
+        <input style={{ ...styles.input, width: "100%" }} type="password" placeholder="Password" value={pwInput} onChange={(e) => setPwInput(e.target.value)} required />
+        {error && <div style={{ color: "#B54834", fontSize: 12.5, marginTop: 10 }}>{error}</div>}
+        <button style={{ ...styles.addBtn, width: "100%", justifyContent: "center", marginTop: 16 }} type="submit">Enter</button>
+      </form>
+    </div>
+  );
+}
+
+// =============== FIREBASE AUTH GATE ===============
+function AuthGate() {
+  const [user, setUser] = useState(undefined);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED) { setUser(null); return; }
+    const unsub = fbAuth.onAuthStateChanged((u) => setUser(u || null));
+    return () => unsub();
+  }, []);
+
+  if (!FIREBASE_ENABLED) return <BrandShieldDashboard user={null} />;
+  if (user === undefined) return null;
+  if (user) return <BrandShieldDashboard user={user} onLogout={() => fbAuth.signOut()} />;
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    setError(""); setBusy(true);
+    fbAuth.signInWithEmailAndPassword(email.trim(), password)
+      .catch((err) => setError(err.code === "auth/invalid-credential" || err.code === "auth/wrong-password" || err.code === "auth/user-not-found"
+        ? "Incorrect email or password." : "Sign-in failed: " + err.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div style={styles.loginPage}>
+      <style>{fontImport}</style>
+      <form style={styles.loginCard} onSubmit={handleLogin}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <Shield size={22} color="#D9A441" /><span style={{ ...styles.brandText, color: "#1B2A4A" }}>RG Pharmaceutica</span>
+        </div>
+        <div style={{ fontSize: 12.5, color: "#6B7280", marginBottom: 22 }}>Sign in to the Trademark &amp; Brand Management Dashboard</div>
+        <input style={{ ...styles.input, width: "100%" }} type="email" placeholder="you@rgpharma.com" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+        <div style={{ height: 10 }} />
+        <input style={{ ...styles.input, width: "100%" }} type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        {error && <div style={{ color: "#B54834", fontSize: 12.5, marginTop: 10 }}>{error}</div>}
+        <button style={{ ...styles.addBtn, width: "100%", justifyContent: "center", marginTop: 16 }} disabled={busy} type="submit">{busy ? "Signing in..." : "Sign In"}</button>
+        <div style={{ fontSize: 11, color: "#9AA5B8", marginTop: 16, lineHeight: 1.5 }}>Don't have an account? Ask your Regulatory Affairs Manager to create one for you in the Firebase console.</div>
+      </form>
+    </div>
+  );
+}
+
+function App() { return <SimpleLoginGate><AuthGate /></SimpleLoginGate>; }
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
